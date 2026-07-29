@@ -57,6 +57,21 @@ function findBrowser(): string | null {
   return candidates.find((path) => existsSync(path)) ?? null;
 }
 
+
+/**
+ * Waits for expected text rather than sleeping a fixed amount. A write against
+ * a remote database can take seconds — fixed waits make the suite report
+ * failures that are really just latency.
+ */
+async function waitForText(page: Page, text: string | RegExp, timeout = 45_000): Promise<boolean> {
+  try {
+    await page.getByText(text).first().waitFor({ timeout });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function signInAsDemo(page: Page) {
   await page.goto(`${BASE_URL}/sign-in`, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: /demo account/i }).click();
@@ -143,8 +158,10 @@ async function run(browser: Browser) {
   check("save policy completes and re-enables", (await page.getByText(/Saved to your policy library|Removed from saved/).count()) > 0);
 
   await page.getByRole("button", { name: /Add to monitoring|Stop monitoring/ }).click();
-  await page.waitForTimeout(1500);
-  check("monitoring toggle responds", (await page.getByText(/Added to monitoring|Removed from monitoring/).count()) > 0);
+  check(
+    "monitoring toggle responds",
+    await waitForText(page, /Added to monitoring|Removed from monitoring/),
+  );
 
   await page.getByRole("button", { name: /Create action plan/ }).click();
   await page.waitForURL(/\/planner\?plan=/, { timeout: 30_000 });
@@ -156,17 +173,23 @@ async function run(browser: Browser) {
   const checkbox = page.locator('input[type="checkbox"]').nth(1);
   const before = await checkbox.isChecked();
   await checkbox.click();
-  await page.waitForTimeout(1800);
-  await page.waitForLoadState("networkidle");
-  check("checklist item toggles and persists", (await page.locator('input[type="checkbox"]').nth(1).isChecked()) !== before);
+  const toggled = await page
+    .waitForFunction(
+      (was) =>
+        (document.querySelectorAll('input[type="checkbox"]')[1] as HTMLInputElement | undefined)
+          ?.checked !== was,
+      before,
+      { timeout: 45_000 },
+    )
+    .then(() => true)
+    .catch(() => false);
+  check("checklist item toggles and persists", toggled);
 
   await page.goto(`${BASE_URL}/planner?new=1`, { waitUntil: "networkidle" });
   await page.getByLabel("Title").fill("UI test task");
   await page.getByLabel("Checklist").fill("Step one\nStep two");
   await page.getByRole("button", { name: "Create task", exact: true }).click();
-  await page.waitForTimeout(2200);
-  await page.waitForLoadState("networkidle");
-  check("new task appears in the planner", (await page.getByText("UI test task").count()) > 0);
+  check("new task appears in the planner", await waitForText(page, "UI test task"));
 
   // ------------------------------------------------------------ Reminders
   section("6. Reminders");
@@ -175,25 +198,30 @@ async function run(browser: Browser) {
   await page.getByLabel("What is the reminder for?").fill("UI test reminder");
   await page.getByLabel("Date", { exact: true }).fill("2026-12-01");
   await page.getByRole("button", { name: "Create reminder", exact: true }).click();
-  await page.waitForTimeout(2200);
-  await page.waitForLoadState("networkidle");
-  check("reminder is created", (await page.getByText("UI test reminder").count()) > 0);
+  check("reminder is created", await waitForText(page, "UI test reminder"));
 
   // ----------------------------------------------------------- Monitoring
   section("7. Monitoring");
   await page.goto(`${BASE_URL}/monitoring`, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: /Run a check now/ }).click();
-  await page.waitForTimeout(2000);
-  check("simulated monitoring run reports back", (await page.getByText(/Checked \d+ monitored item/).count()) > 0);
+  check("simulated monitoring run reports back", await waitForText(page, /Checked \d+ monitored item/));
 
   const reviewButton = page.getByRole("button", { name: /Mark reviewed/ }).first();
   if ((await reviewButton.count()) > 0) {
     const beforeCount = await page.getByRole("button", { name: /Mark reviewed/ }).count();
     await reviewButton.click();
-    await page.waitForTimeout(2200);
-    await page.waitForLoadState("networkidle");
-    const afterCount = await page.getByRole("button", { name: /Mark reviewed/ }).count();
-    check("marking a change reviewed updates the feed", afterCount < beforeCount);
+    const dropped = await page
+      .waitForFunction(
+        (n) =>
+          Array.from(document.querySelectorAll("button")).filter((b) =>
+            /Mark reviewed/.test(b.textContent ?? ""),
+          ).length < n,
+        beforeCount,
+        { timeout: 45_000 },
+      )
+      .then(() => true)
+      .catch(() => false);
+    check("marking a change reviewed updates the feed", dropped);
   } else {
     check("marking a change reviewed updates the feed", false, "no unreviewed changes present");
   }
@@ -209,8 +237,7 @@ async function run(browser: Browser) {
   const saveComparison = page.getByRole("button", { name: /Save comparison/ });
   if ((await saveComparison.count()) > 0) {
     await saveComparison.click();
-    await page.waitForTimeout(2200);
-    check("comparison saves", (await page.getByText(/Comparison saved/).count()) > 0);
+    check("comparison saves", await waitForText(page, /Comparison saved/));
   } else {
     check("comparison saves", false, "save button not shown");
   }
@@ -228,8 +255,7 @@ async function run(browser: Browser) {
   const createTask = page.getByRole("button", { name: /^Create task$/ }).first();
   if ((await createTask.count()) > 0) {
     await createTask.click();
-    await page.waitForTimeout(2200);
-    check("a recommendation becomes a task", (await page.getByText(/Task created/).count()) > 0);
+    check("a recommendation becomes a task", await waitForText(page, /Task created/));
   } else {
     check("a recommendation becomes a task", false, "no recommendations rendered");
   }
@@ -253,9 +279,7 @@ async function run(browser: Browser) {
   const markAll = page.getByRole("button", { name: /Mark all as read/ });
   if (await markAll.isEnabled()) {
     await markAll.click();
-    await page.waitForTimeout(2200);
-    await page.waitForLoadState("networkidle");
-    check("mark all as read works", (await page.getByText(/^0 unread of/).count()) > 0);
+    check("mark all as read works", await waitForText(page, /^0 unread of/));
   } else {
     check("mark all as read works", true, "nothing unread");
   }
@@ -269,10 +293,9 @@ async function run(browser: Browser) {
     .first();
   const planLabel = (await planButton.innerText()).replace("Switch to ", "").trim();
   await planButton.click();
-  await page.waitForTimeout(2200);
   check(
     "plan selection persists",
-    (await page.getByText(new RegExp(`You are now on the ${planLabel} plan`)).count()) > 0,
+    await waitForText(page, new RegExp(`You are now on the ${planLabel} plan`)),
     `tried ${planLabel}`,
   );
 

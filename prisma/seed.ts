@@ -202,6 +202,17 @@ async function seedPolicies() {
 }
 
 async function seedDemoBusinesses(userId: string) {
+  // The demo row may already exist under a different id — for example when the
+  // data was loaded from schema.sql, which carries the ids from wherever it was
+  // dumped. Re-point it at the current auth user rather than colliding on the
+  // unique email; every relation is ON UPDATE CASCADE, so its businesses,
+  // tasks, reminders and reports follow.
+  const existingByEmail = await prisma.user.findUnique({ where: { email: DEMO_EMAIL } });
+  if (existingByEmail && existingByEmail.id !== userId) {
+    await prisma.user.update({ where: { id: existingByEmail.id }, data: { id: userId } });
+    console.log(`  re-pointed existing demo data at auth user ${userId}`);
+  }
+
   await prisma.user.upsert({
     where: { id: userId },
     create: { id: userId, email: DEMO_EMAIL, fullName: "RegLens Demo", isDemo: true, plan: "PRO" },
