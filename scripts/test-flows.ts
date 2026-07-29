@@ -57,11 +57,12 @@ function section(title: string) {
  */
 async function buildSessionCookie(): Promise<string | null> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anonKey) return null;
+  const browserKey =
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !browserKey) return null;
 
   const jar = new Map<string, string>();
-  const supabase = createServerClient(url, anonKey, {
+  const supabase = createServerClient(url, browserKey, {
     cookies: {
       getAll: () => Array.from(jar, ([name, value]) => ({ name, value })),
       setAll: (cookies) => {
@@ -84,12 +85,13 @@ async function main() {
 
   // -------------------------------------------------------------- 1. Sign in
   section("1. Authentication");
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const browserKey =
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   let ownerId: string | null = null;
 
-  if (supabaseUrl && anonKey) {
-    const supabase = createClient(supabaseUrl, anonKey, {
+  if (url && browserKey) {
+    const supabase = createClient(url, browserKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
     const { data, error } = await supabase.auth.signInWithPassword({
@@ -100,7 +102,11 @@ async function main() {
     check("session carries an access token", Boolean(data.session?.access_token));
     ownerId = data.user?.id ?? null;
   } else {
-    check("Supabase env vars present", false, "NEXT_PUBLIC_SUPABASE_URL / ANON_KEY not set");
+    check(
+      "Supabase env vars present",
+      false,
+      "NEXT_PUBLIC_SUPABASE_URL and a browser key (PUBLISHABLE_KEY or ANON_KEY) must be set",
+    );
   }
 
   const owner = ownerId

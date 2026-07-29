@@ -141,12 +141,18 @@ Copy `.env.example` to `.env.local`. Every value is documented inline there.
 | `DATABASE_URL` | yes | Supabase → Settings → Database → **Transaction pooler** URI (port 6543, add `?pgbouncer=true`) |
 | `DIRECT_URL` | yes | Supabase → Settings → Database → **Direct connection** URI (port 5432). Used by Prisma Migrate |
 | `NEXT_PUBLIC_SUPABASE_URL` | yes | Supabase → Settings → API → Project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes | Supabase → Settings → API → anon / publishable key |
-| `SUPABASE_SERVICE_ROLE_KEY` | seed only | Supabase → Settings → API → service_role key. **Server only** — used solely to create the demo account |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | yes\* | Supabase → Settings → API Keys → publishable key (`sb_publishable_…`) |
+| `SUPABASE_SECRET_KEY` | seed only\* | Supabase → Settings → API Keys → secret key (`sb_secret_…`). **Server only** |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | legacy\* | Older projects: the `anon` JWT. Used only if the publishable key is unset |
+| `SUPABASE_SERVICE_ROLE_KEY` | legacy\* | Older projects: the `service_role` JWT. Used only if the secret key is unset |
 | `GROQ_API_KEY` | optional | https://console.groq.com/keys |
 | `GROQ_MODEL` | optional | Defaults to `llama-3.3-70b-versatile` |
 | `NEXT_PUBLIC_DEMO_EMAIL` | optional | Demo account email, default `demo@reglens.ai` |
 | `DEMO_PASSWORD` | optional | Demo account password, default `reglens-demo-2025` |
+
+\* Supabase is migrating from the legacy JWT keys (`anon` / `service_role`) to the newer
+`sb_publishable_…` / `sb_secret_…` pair. RegLens accepts **either** — set whichever pair your project shows
+and leave the other blank. When both are present the newer format wins.
 
 ### AI provider — Groq
 

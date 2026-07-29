@@ -7,6 +7,7 @@ import { JURISDICTIONS } from "../src/data/jurisdictions";
 import { POLICIES } from "../src/data/policies";
 import { POLICY_UPDATES, POLICY_VERSIONS } from "../src/data/updates";
 import { loadEnv } from "../src/lib/load-env";
+import { supabaseSecretKey } from "../src/lib/supabase/env";
 import { PLAN_CATALOG } from "../src/lib/plans";
 
 loadEnv();
@@ -37,11 +38,12 @@ function daysFromNow(days: number): Date {
  */
 async function ensureDemoAuthUser(): Promise<string> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const serviceKey = supabaseSecretKey();
 
   if (!url || !serviceKey) {
     console.warn(
-      "! NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing — seeding app data with a placeholder demo user id.",
+      "! NEXT_PUBLIC_SUPABASE_URL or a Supabase secret key (SUPABASE_SECRET_KEY / SUPABASE_SERVICE_ROLE_KEY)" +
+        " is missing — seeding app data with a placeholder demo user id.",
     );
     return FALLBACK_DEMO_USER_ID;
   }
