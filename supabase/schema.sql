@@ -1,0 +1,1243 @@
+-- ===========================================================================
+-- RegLens AI — complete database
+--
+-- One file: schema + all data. Paste the whole thing into the Supabase
+-- Dashboard -> SQL Editor and press Run. No connection string needed.
+--
+-- Creates 21 tables, 13 enum types, indexes and foreign keys in `public`,
+-- then loads the full dataset: 107 North American jurisdictions, 43 policy
+-- records with versions and change feed, 5 demo businesses with their tasks,
+-- checklists, reminders, monitoring, notifications and reports.
+--
+-- Re-running: this expects an empty database. To start over, uncomment the
+-- RESET block immediately below (it drops only RegLens tables).
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+-- RESET (optional — destroys all RegLens data)
+-- ---------------------------------------------------------------------------
+-- DROP TABLE IF EXISTS "Notification","Reminder","ChecklistItem","Task",
+--   "ActionPlan","AIMessage","AIConversation","PolicyUpdateReview",
+--   "SavedComparison","Report","SavedPolicy","MonitoredPolicy",
+--   "BusinessJurisdiction","BusinessProfile","Business","PolicyUpdate",
+--   "PolicyVersion","Policy","Jurisdiction","SubscriptionPlan","User",
+--   "_prisma_migrations" CASCADE;
+-- DROP TYPE IF EXISTS "PlanTier","JurisdictionLevel","PolicyStatus",
+--   "PolicyImportance","UpdateType","UpdateReviewState","MonitorTargetType",
+--   "JurisdictionRole","TaskStatus","TaskPriority","PlanSource","ReminderKind",
+--   "NotificationKind","MessageRole" CASCADE;
+
+SET search_path = public;
+
+
+-- ===========================================================================
+-- 1. SCHEMA
+-- ===========================================================================
+
+-- CreateEnum
+CREATE TYPE "PlanTier" AS ENUM ('FREE', 'PRO', 'BUSINESS');
+
+-- CreateEnum
+CREATE TYPE "JurisdictionLevel" AS ENUM ('FEDERAL', 'STATE', 'PROVINCE', 'TERRITORY', 'COUNTY', 'MUNICIPAL');
+
+-- CreateEnum
+CREATE TYPE "PolicyStatus" AS ENUM ('IN_FORCE', 'PROPOSED', 'PENDING_EFFECTIVE', 'AMENDED', 'REPEALED');
+
+-- CreateEnum
+CREATE TYPE "PolicyImportance" AS ENUM ('LOW', 'MODERATE', 'HIGH', 'CRITICAL');
+
+-- CreateEnum
+CREATE TYPE "UpdateType" AS ENUM ('NEW_POLICY', 'UPDATED_POLICY', 'EFFECTIVE_DATE_CHANGED', 'REQUIREMENT_CHANGED', 'DEADLINE_APPROACHING', 'REPEALED_OR_REPLACED');
+
+-- CreateEnum
+CREATE TYPE "UpdateReviewState" AS ENUM ('UNREVIEWED', 'REVIEWED', 'DISMISSED');
+
+-- CreateEnum
+CREATE TYPE "MonitorTargetType" AS ENUM ('POLICY', 'JURISDICTION', 'INDUSTRY', 'TOPIC');
+
+-- CreateEnum
+CREATE TYPE "JurisdictionRole" AS ENUM ('OPERATING', 'TARGET_EXPANSION');
+
+-- CreateEnum
+CREATE TYPE "TaskStatus" AS ENUM ('NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'BLOCKED');
+
+-- CreateEnum
+CREATE TYPE "TaskPriority" AS ENUM ('LOW', 'MEDIUM', 'HIGH', 'URGENT');
+
+-- CreateEnum
+CREATE TYPE "PlanSource" AS ENUM ('POLICY', 'AI_ANALYSIS', 'REGULATORY_UPDATE', 'COMPARISON', 'MANUAL');
+
+-- CreateEnum
+CREATE TYPE "ReminderKind" AS ENUM ('COMPLIANCE_DEADLINE', 'PERMIT_RENEWAL', 'CERTIFICATION_RENEWAL', 'FILING_DEADLINE', 'POLICY_REVIEW', 'CUSTOM');
+
+-- CreateEnum
+CREATE TYPE "NotificationKind" AS ENUM ('REMINDER', 'POLICY_UPDATE', 'TASK', 'SYSTEM');
+
+-- CreateEnum
+CREATE TYPE "MessageRole" AS ENUM ('USER', 'ASSISTANT');
+
+-- CreateTable
+CREATE TABLE "User" (
+    "id" TEXT NOT NULL,
+    "email" TEXT NOT NULL,
+    "fullName" TEXT,
+    "plan" "PlanTier" NOT NULL DEFAULT 'FREE',
+    "isDemo" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "User_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "SubscriptionPlan" (
+    "id" TEXT NOT NULL,
+    "tier" "PlanTier" NOT NULL,
+    "name" TEXT NOT NULL,
+    "priceMonthly" INTEGER NOT NULL,
+    "tagline" TEXT NOT NULL,
+    "features" TEXT[],
+    "limits" JSONB NOT NULL,
+    "highlighted" BOOLEAN NOT NULL DEFAULT false,
+    "displayOrder" INTEGER NOT NULL DEFAULT 0,
+
+    CONSTRAINT "SubscriptionPlan_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Business" (
+    "id" TEXT NOT NULL,
+    "ownerId" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "slug" TEXT NOT NULL,
+    "description" TEXT NOT NULL DEFAULT '',
+    "website" TEXT,
+    "isDemo" BOOLEAN NOT NULL DEFAULT false,
+    "country" TEXT NOT NULL DEFAULT 'US',
+    "region" TEXT NOT NULL DEFAULT '',
+    "city" TEXT NOT NULL DEFAULT '',
+    "sizeBand" TEXT NOT NULL DEFAULT '1-10',
+    "employeeCount" INTEGER NOT NULL DEFAULT 1,
+    "orgType" TEXT NOT NULL DEFAULT 'LLC',
+    "onboardingCompleted" BOOLEAN NOT NULL DEFAULT false,
+    "onboardingStep" INTEGER NOT NULL DEFAULT 0,
+    "disclaimerAcceptedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Business_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "BusinessProfile" (
+    "id" TEXT NOT NULL,
+    "businessId" TEXT NOT NULL,
+    "industryKey" TEXT NOT NULL DEFAULT 'general_small_business',
+    "industryLabel" TEXT NOT NULL DEFAULT 'General small business',
+    "subIndustries" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "productsSold" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "servicesProvided" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "importsProducts" BOOLEAN NOT NULL DEFAULT false,
+    "importCountries" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "employsStaff" BOOLEAN NOT NULL DEFAULT false,
+    "handlesCustomerData" BOOLEAN NOT NULL DEFAULT false,
+    "physicalLocations" BOOLEAN NOT NULL DEFAULT false,
+    "sellsCrossBorder" BOOLEAN NOT NULL DEFAULT false,
+    "requiresLicenses" BOOLEAN NOT NULL DEFAULT false,
+    "regulatedIndustry" BOOLEAN NOT NULL DEFAULT false,
+    "plansExpansion" BOOLEAN NOT NULL DEFAULT false,
+    "targetCountry" TEXT,
+    "targetRegion" TEXT,
+    "targetCity" TEXT,
+    "expansionActivity" TEXT,
+    "expansionDate" TIMESTAMP(3),
+    "compliancePriorities" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "trackingMethod" TEXT NOT NULL DEFAULT 'nothing_formal',
+    "hasComplianceStaff" BOOLEAN NOT NULL DEFAULT false,
+    "usesSpreadsheets" BOOLEAN NOT NULL DEFAULT false,
+    "usesExternalTool" BOOLEAN NOT NULL DEFAULT false,
+    "reviewFrequency" TEXT NOT NULL DEFAULT 'rarely',
+    "topConcern" TEXT NOT NULL DEFAULT '',
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "BusinessProfile_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Jurisdiction" (
+    "code" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "country" TEXT NOT NULL,
+    "level" "JurisdictionLevel" NOT NULL,
+    "parentCode" TEXT,
+
+    CONSTRAINT "Jurisdiction_pkey" PRIMARY KEY ("code")
+);
+
+-- CreateTable
+CREATE TABLE "BusinessJurisdiction" (
+    "id" TEXT NOT NULL,
+    "businessId" TEXT NOT NULL,
+    "jurisdictionCode" TEXT NOT NULL,
+    "role" "JurisdictionRole" NOT NULL DEFAULT 'OPERATING',
+
+    CONSTRAINT "BusinessJurisdiction_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Policy" (
+    "id" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "country" TEXT NOT NULL,
+    "jurisdictionCode" TEXT NOT NULL,
+    "level" "JurisdictionLevel" NOT NULL,
+    "agency" TEXT NOT NULL,
+    "industryTags" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "topicTags" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "status" "PolicyStatus" NOT NULL DEFAULT 'IN_FORCE',
+    "importance" "PolicyImportance" NOT NULL DEFAULT 'MODERATE',
+    "publishedAt" TIMESTAMP(3) NOT NULL,
+    "effectiveAt" TIMESTAMP(3) NOT NULL,
+    "lastUpdatedAt" TIMESTAMP(3) NOT NULL,
+    "plainSummary" TEXT NOT NULL,
+    "fullSummary" TEXT NOT NULL DEFAULT '',
+    "affectedOrgs" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "requirements" JSONB NOT NULL DEFAULT '[]',
+    "consequences" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "deadlines" JSONB NOT NULL DEFAULT '[]',
+    "sourceName" TEXT NOT NULL,
+    "sourceUrl" TEXT NOT NULL,
+    "isSampleData" BOOLEAN NOT NULL DEFAULT true,
+    "relatedIds" TEXT[] DEFAULT ARRAY[]::TEXT[],
+
+    CONSTRAINT "Policy_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PolicyVersion" (
+    "id" TEXT NOT NULL,
+    "policyId" TEXT NOT NULL,
+    "version" INTEGER NOT NULL,
+    "effectiveAt" TIMESTAMP(3) NOT NULL,
+    "summary" TEXT NOT NULL,
+    "changeNote" TEXT NOT NULL DEFAULT '',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "PolicyVersion_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PolicyUpdate" (
+    "id" TEXT NOT NULL,
+    "policyId" TEXT NOT NULL,
+    "versionId" TEXT,
+    "type" "UpdateType" NOT NULL,
+    "title" TEXT NOT NULL,
+    "description" TEXT NOT NULL,
+    "importance" "PolicyImportance" NOT NULL DEFAULT 'MODERATE',
+    "detectedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "PolicyUpdate_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PolicyUpdateReview" (
+    "id" TEXT NOT NULL,
+    "businessId" TEXT NOT NULL,
+    "updateId" TEXT NOT NULL,
+    "state" "UpdateReviewState" NOT NULL DEFAULT 'UNREVIEWED',
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "PolicyUpdateReview_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "MonitoredPolicy" (
+    "id" TEXT NOT NULL,
+    "businessId" TEXT NOT NULL,
+    "targetType" "MonitorTargetType" NOT NULL DEFAULT 'POLICY',
+    "policyId" TEXT,
+    "targetKey" TEXT,
+    "label" TEXT NOT NULL,
+    "active" BOOLEAN NOT NULL DEFAULT true,
+    "lastChecked" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "MonitoredPolicy_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "SavedPolicy" (
+    "id" TEXT NOT NULL,
+    "businessId" TEXT NOT NULL,
+    "policyId" TEXT NOT NULL,
+    "note" TEXT NOT NULL DEFAULT '',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "SavedPolicy_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "AIConversation" (
+    "id" TEXT NOT NULL,
+    "businessId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "title" TEXT NOT NULL DEFAULT 'New analysis',
+    "policyId" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "AIConversation_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "AIMessage" (
+    "id" TEXT NOT NULL,
+    "conversationId" TEXT NOT NULL,
+    "role" "MessageRole" NOT NULL,
+    "content" TEXT NOT NULL,
+    "structured" JSONB,
+    "provider" TEXT NOT NULL DEFAULT 'demo',
+    "saved" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "AIMessage_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "ActionPlan" (
+    "id" TEXT NOT NULL,
+    "businessId" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "description" TEXT NOT NULL DEFAULT '',
+    "source" "PlanSource" NOT NULL DEFAULT 'MANUAL',
+    "policyId" TEXT,
+    "conversationId" TEXT,
+    "jurisdictionCode" TEXT,
+    "category" TEXT NOT NULL DEFAULT 'general',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "ActionPlan_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Task" (
+    "id" TEXT NOT NULL,
+    "businessId" TEXT NOT NULL,
+    "planId" TEXT,
+    "policyId" TEXT,
+    "title" TEXT NOT NULL,
+    "description" TEXT NOT NULL DEFAULT '',
+    "category" TEXT NOT NULL DEFAULT 'general',
+    "jurisdictionCode" TEXT,
+    "priority" "TaskPriority" NOT NULL DEFAULT 'MEDIUM',
+    "status" "TaskStatus" NOT NULL DEFAULT 'NOT_STARTED',
+    "dueDate" TIMESTAMP(3),
+    "notes" TEXT NOT NULL DEFAULT '',
+    "completedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Task_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "ChecklistItem" (
+    "id" TEXT NOT NULL,
+    "taskId" TEXT NOT NULL,
+    "label" TEXT NOT NULL,
+    "done" BOOLEAN NOT NULL DEFAULT false,
+    "position" INTEGER NOT NULL DEFAULT 0,
+
+    CONSTRAINT "ChecklistItem_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Reminder" (
+    "id" TEXT NOT NULL,
+    "businessId" TEXT NOT NULL,
+    "taskId" TEXT,
+    "policyId" TEXT,
+    "kind" "ReminderKind" NOT NULL DEFAULT 'CUSTOM',
+    "title" TEXT NOT NULL,
+    "notes" TEXT NOT NULL DEFAULT '',
+    "dueDate" TIMESTAMP(3) NOT NULL,
+    "advanceDays" INTEGER NOT NULL DEFAULT 7,
+    "snoozedUntil" TIMESTAMP(3),
+    "dismissed" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Reminder_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Notification" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "businessId" TEXT NOT NULL,
+    "reminderId" TEXT,
+    "kind" "NotificationKind" NOT NULL DEFAULT 'SYSTEM',
+    "title" TEXT NOT NULL,
+    "body" TEXT NOT NULL DEFAULT '',
+    "href" TEXT,
+    "read" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Notification_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "SavedComparison" (
+    "id" TEXT NOT NULL,
+    "businessId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "topic" TEXT NOT NULL,
+    "activity" TEXT NOT NULL DEFAULT '',
+    "jurisdictionCodes" TEXT[],
+    "result" JSONB NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "SavedComparison_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Report" (
+    "id" TEXT NOT NULL,
+    "businessId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "kind" TEXT NOT NULL DEFAULT 'compliance_summary',
+    "payload" JSONB NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Report_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "SubscriptionPlan_tier_key" ON "SubscriptionPlan"("tier");
+
+-- CreateIndex
+CREATE INDEX "Business_ownerId_idx" ON "Business"("ownerId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Business_ownerId_slug_key" ON "Business"("ownerId", "slug");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "BusinessProfile_businessId_key" ON "BusinessProfile"("businessId");
+
+-- CreateIndex
+CREATE INDEX "Jurisdiction_country_idx" ON "Jurisdiction"("country");
+
+-- CreateIndex
+CREATE INDEX "BusinessJurisdiction_businessId_idx" ON "BusinessJurisdiction"("businessId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "BusinessJurisdiction_businessId_jurisdictionCode_role_key" ON "BusinessJurisdiction"("businessId", "jurisdictionCode", "role");
+
+-- CreateIndex
+CREATE INDEX "Policy_country_idx" ON "Policy"("country");
+
+-- CreateIndex
+CREATE INDEX "Policy_jurisdictionCode_idx" ON "Policy"("jurisdictionCode");
+
+-- CreateIndex
+CREATE INDEX "Policy_status_idx" ON "Policy"("status");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "PolicyVersion_policyId_version_key" ON "PolicyVersion"("policyId", "version");
+
+-- CreateIndex
+CREATE INDEX "PolicyUpdate_policyId_idx" ON "PolicyUpdate"("policyId");
+
+-- CreateIndex
+CREATE INDEX "PolicyUpdate_detectedAt_idx" ON "PolicyUpdate"("detectedAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "PolicyUpdateReview_businessId_updateId_key" ON "PolicyUpdateReview"("businessId", "updateId");
+
+-- CreateIndex
+CREATE INDEX "MonitoredPolicy_businessId_idx" ON "MonitoredPolicy"("businessId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "MonitoredPolicy_businessId_targetType_policyId_targetKey_key" ON "MonitoredPolicy"("businessId", "targetType", "policyId", "targetKey");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "SavedPolicy_businessId_policyId_key" ON "SavedPolicy"("businessId", "policyId");
+
+-- CreateIndex
+CREATE INDEX "AIConversation_businessId_idx" ON "AIConversation"("businessId");
+
+-- CreateIndex
+CREATE INDEX "AIMessage_conversationId_idx" ON "AIMessage"("conversationId");
+
+-- CreateIndex
+CREATE INDEX "ActionPlan_businessId_idx" ON "ActionPlan"("businessId");
+
+-- CreateIndex
+CREATE INDEX "Task_businessId_idx" ON "Task"("businessId");
+
+-- CreateIndex
+CREATE INDEX "Task_planId_idx" ON "Task"("planId");
+
+-- CreateIndex
+CREATE INDEX "ChecklistItem_taskId_idx" ON "ChecklistItem"("taskId");
+
+-- CreateIndex
+CREATE INDEX "Reminder_businessId_idx" ON "Reminder"("businessId");
+
+-- CreateIndex
+CREATE INDEX "Notification_businessId_read_idx" ON "Notification"("businessId", "read");
+
+-- CreateIndex
+CREATE INDEX "SavedComparison_businessId_idx" ON "SavedComparison"("businessId");
+
+-- CreateIndex
+CREATE INDEX "Report_businessId_idx" ON "Report"("businessId");
+
+-- AddForeignKey
+ALTER TABLE "Business" ADD CONSTRAINT "Business_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "BusinessProfile" ADD CONSTRAINT "BusinessProfile_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Jurisdiction" ADD CONSTRAINT "Jurisdiction_parentCode_fkey" FOREIGN KEY ("parentCode") REFERENCES "Jurisdiction"("code") ON DELETE NO ACTION ON UPDATE NO ACTION;
+
+-- AddForeignKey
+ALTER TABLE "BusinessJurisdiction" ADD CONSTRAINT "BusinessJurisdiction_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "BusinessJurisdiction" ADD CONSTRAINT "BusinessJurisdiction_jurisdictionCode_fkey" FOREIGN KEY ("jurisdictionCode") REFERENCES "Jurisdiction"("code") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Policy" ADD CONSTRAINT "Policy_jurisdictionCode_fkey" FOREIGN KEY ("jurisdictionCode") REFERENCES "Jurisdiction"("code") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PolicyVersion" ADD CONSTRAINT "PolicyVersion_policyId_fkey" FOREIGN KEY ("policyId") REFERENCES "Policy"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PolicyUpdate" ADD CONSTRAINT "PolicyUpdate_policyId_fkey" FOREIGN KEY ("policyId") REFERENCES "Policy"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PolicyUpdate" ADD CONSTRAINT "PolicyUpdate_versionId_fkey" FOREIGN KEY ("versionId") REFERENCES "PolicyVersion"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PolicyUpdateReview" ADD CONSTRAINT "PolicyUpdateReview_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PolicyUpdateReview" ADD CONSTRAINT "PolicyUpdateReview_updateId_fkey" FOREIGN KEY ("updateId") REFERENCES "PolicyUpdate"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "MonitoredPolicy" ADD CONSTRAINT "MonitoredPolicy_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "MonitoredPolicy" ADD CONSTRAINT "MonitoredPolicy_policyId_fkey" FOREIGN KEY ("policyId") REFERENCES "Policy"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SavedPolicy" ADD CONSTRAINT "SavedPolicy_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SavedPolicy" ADD CONSTRAINT "SavedPolicy_policyId_fkey" FOREIGN KEY ("policyId") REFERENCES "Policy"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "AIConversation" ADD CONSTRAINT "AIConversation_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "AIConversation" ADD CONSTRAINT "AIConversation_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "AIMessage" ADD CONSTRAINT "AIMessage_conversationId_fkey" FOREIGN KEY ("conversationId") REFERENCES "AIConversation"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ActionPlan" ADD CONSTRAINT "ActionPlan_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ActionPlan" ADD CONSTRAINT "ActionPlan_policyId_fkey" FOREIGN KEY ("policyId") REFERENCES "Policy"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ActionPlan" ADD CONSTRAINT "ActionPlan_conversationId_fkey" FOREIGN KEY ("conversationId") REFERENCES "AIConversation"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Task" ADD CONSTRAINT "Task_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Task" ADD CONSTRAINT "Task_planId_fkey" FOREIGN KEY ("planId") REFERENCES "ActionPlan"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Task" ADD CONSTRAINT "Task_policyId_fkey" FOREIGN KEY ("policyId") REFERENCES "Policy"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ChecklistItem" ADD CONSTRAINT "ChecklistItem_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES "Task"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Reminder" ADD CONSTRAINT "Reminder_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Reminder" ADD CONSTRAINT "Reminder_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES "Task"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Reminder" ADD CONSTRAINT "Reminder_policyId_fkey" FOREIGN KEY ("policyId") REFERENCES "Policy"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Notification" ADD CONSTRAINT "Notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Notification" ADD CONSTRAINT "Notification_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Notification" ADD CONSTRAINT "Notification_reminderId_fkey" FOREIGN KEY ("reminderId") REFERENCES "Reminder"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SavedComparison" ADD CONSTRAINT "SavedComparison_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SavedComparison" ADD CONSTRAINT "SavedComparison_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Report" ADD CONSTRAINT "Report_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Report" ADD CONSTRAINT "Report_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- Lets `prisma migrate deploy` recognise this schema as already applied.
+CREATE TABLE IF NOT EXISTS "_prisma_migrations" (
+    "id"                    VARCHAR(36) PRIMARY KEY NOT NULL,
+    "checksum"              VARCHAR(64) NOT NULL,
+    "finished_at"           TIMESTAMPTZ,
+    "migration_name"        VARCHAR(255) NOT NULL,
+    "logs"                  TEXT,
+    "rolled_back_at"        TIMESTAMPTZ,
+    "started_at"            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    "applied_steps_count"   INTEGER NOT NULL DEFAULT 0
+);
+
+
+-- ===========================================================================
+-- 2. DATA
+-- Foreign key checks are suspended for the load, then restored.
+-- ===========================================================================
+
+SET session_replication_role = replica;
+
+INSERT INTO "public"."User" ("id", "email", "fullName", "plan", "isDemo", "createdAt", "updatedAt") VALUES
+	('068a80e0-413c-42b9-ad7a-f3f53e8a78bc', 'demo@reglens.ai', 'RegLens Demo', 'PRO', true, '2026-07-28 18:28:07.17', '2026-07-29 12:58:31.603'),
+	('26d42de8-dd34-411f-91a0-a012c3d383d9', 'elon@tesla.com', 'Elon Musk', 'FREE', false, '2026-07-29 09:38:11.661', '2026-07-29 09:44:08.766');
+
+
+--
+-- Data for Name: Business; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+INSERT INTO "public"."Business" ("id", "ownerId", "name", "slug", "description", "website", "isDemo", "country", "region", "city", "sizeBand", "employeeCount", "orgType", "onboardingCompleted", "onboardingStep", "disclaimerAcceptedAt", "createdAt", "updatedAt") VALUES
+	('cms5wcfa0002986ijpaho4mko', '26d42de8-dd34-411f-91a0-a012c3d383d9', 'Tesla', 'tesla', 'Selling electro cars', 'https://tesla.com', false, 'US', 'US-CT', 'Astana', '1000+', 500000, 'LLC', true, 6, '2026-07-29 09:42:53.78', '2026-07-29 09:42:53.784', '2026-07-29 09:42:53.784'),
+	('cms63c09f0015azijz2o7q5l7', '068a80e0-413c-42b9-ad7a-f3f53e8a78bc', 'Frostonic', 'frostonic', 'Direct-to-consumer brand selling imported cold plunge and ice bath tubs across the United States, with a planned launch in Canada.', 'https://frostonic.example.com', true, 'US', 'US-CA', 'Los Angeles', '2-10', 6, 'LLC', true, 6, '2026-06-29 07:00:00', '2026-07-29 12:58:31.635', '2026-07-29 12:58:31.635'),
+	('cms63c0c1002nazijksot7xc6', '068a80e0-413c-42b9-ad7a-f3f53e8a78bc', 'Ricos Boutique', 'ricos-boutique', 'Boutique importer and retailer of ski and snowboarding apparel, selling online and through a single storefront, with wholesale accounts in the north-east.', 'https://ricosboutique.example.com', true, 'US', 'US-NY', 'Buffalo', '2-10', 9, 'LLC', true, 6, '2026-06-29 07:00:00', '2026-07-29 12:58:31.729', '2026-07-29 12:58:31.729'),
+	('cms63c0do003yazij21101fss', '068a80e0-413c-42b9-ad7a-f3f53e8a78bc', 'Kumon Learning Center — Westside', 'kumon-learning-center', 'Independently operated after-school learning centre offering maths and reading programmes to students from kindergarten through high school.', 'https://westside-learning.example.com', true, 'US', 'US-CA', 'Los Angeles', '2-10', 8, 'Sole proprietorship', true, 6, '2026-06-29 07:00:00', '2026-07-29 12:58:31.788', '2026-07-29 12:58:31.788'),
+	('cms63c0eu0051azijotk9pjyb', '068a80e0-413c-42b9-ad7a-f3f53e8a78bc', 'Sparc Technologies', 'sparc-technologies', 'Supplier of automated kitchen robots for quick-service restaurants, handling manufacturing oversight, certification and installation support across the United States.', 'https://sparctech.example.com', true, 'US', 'US-TX', 'Houston', '11-50', 34, 'Corporation', true, 6, '2026-06-29 07:00:00', '2026-07-29 12:58:31.83', '2026-07-29 12:58:31.83'),
+	('cms63c0gq006iazij7snqnv94', '068a80e0-413c-42b9-ad7a-f3f53e8a78bc', 'LotusFlare Canada Inc', 'lotusflare-canada', 'Digital telecommunications provider operating a cloud-native subscriber platform for Canadian carriers, with an internal compliance function and a US market entry underway.', 'https://lotusflare.example.com', true, 'CA', 'CA-ON', 'Toronto', '201-1000', 420, 'Corporation', true, 6, '2026-06-29 07:00:00', '2026-07-29 12:58:31.898', '2026-07-29 12:58:31.898');
+
+
+--
+-- Data for Name: AIConversation; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+
+
+--
+-- Data for Name: AIMessage; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+
+
+--
+-- Data for Name: Jurisdiction; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+INSERT INTO "public"."Jurisdiction" ("code", "name", "country", "level", "parentCode") VALUES
+	('US-LA', 'Louisiana', 'US', 'STATE', 'US'),
+	('US-MT', 'Montana', 'US', 'STATE', 'US'),
+	('US-NE', 'Nebraska', 'US', 'STATE', 'US'),
+	('US-NV', 'Nevada', 'US', 'STATE', 'US'),
+	('US-ND', 'North Dakota', 'US', 'STATE', 'US'),
+	('US-OH', 'Ohio', 'US', 'STATE', 'US'),
+	('US-OK', 'Oklahoma', 'US', 'STATE', 'US'),
+	('US-TN', 'Tennessee', 'US', 'STATE', 'US'),
+	('US-TX', 'Texas', 'US', 'STATE', 'US'),
+	('US-UT', 'Utah', 'US', 'STATE', 'US'),
+	('US-WY', 'Wyoming', 'US', 'STATE', 'US'),
+	('US-DC', 'District of Columbia', 'US', 'STATE', 'US'),
+	('US-PR', 'Puerto Rico', 'US', 'TERRITORY', 'US'),
+	('CA-MB', 'Manitoba', 'CA', 'PROVINCE', 'CA'),
+	('CA-NB', 'New Brunswick', 'CA', 'PROVINCE', 'CA'),
+	('CA-NL', 'Newfoundland and Labrador', 'CA', 'PROVINCE', 'CA'),
+	('CA-NS', 'Nova Scotia', 'CA', 'PROVINCE', 'CA'),
+	('CA-SK', 'Saskatchewan', 'CA', 'PROVINCE', 'CA'),
+	('CA-NT', 'Northwest Territories', 'CA', 'TERRITORY', 'CA'),
+	('CA-NU', 'Nunavut', 'CA', 'TERRITORY', 'CA'),
+	('MX-CAM', 'Campeche', 'MX', 'STATE', 'MX'),
+	('MX-CHP', 'Chiapas', 'MX', 'STATE', 'MX'),
+	('MX-CHH', 'Chihuahua', 'MX', 'STATE', 'MX'),
+	('MX-CMX', 'Ciudad de México', 'MX', 'STATE', 'MX'),
+	('MX-COA', 'Coahuila', 'MX', 'STATE', 'MX'),
+	('MX-COL', 'Colima', 'MX', 'STATE', 'MX'),
+	('MX-DUR', 'Durango', 'MX', 'STATE', 'MX'),
+	('MX-GUA', 'Guanajuato', 'MX', 'STATE', 'MX'),
+	('MX-GRO', 'Guerrero', 'MX', 'STATE', 'MX'),
+	('MX-HID', 'Hidalgo', 'MX', 'STATE', 'MX'),
+	('MX-JAL', 'Jalisco', 'MX', 'STATE', 'MX'),
+	('MX-MEX', 'Estado de México', 'MX', 'STATE', 'MX'),
+	('MX-MIC', 'Michoacán', 'MX', 'STATE', 'MX'),
+	('MX-MOR', 'Morelos', 'MX', 'STATE', 'MX'),
+	('MX-NAY', 'Nayarit', 'MX', 'STATE', 'MX'),
+	('MX-NLE', 'Nuevo León', 'MX', 'STATE', 'MX'),
+	('MX-OAX', 'Oaxaca', 'MX', 'STATE', 'MX'),
+	('MX-PUE', 'Puebla', 'MX', 'STATE', 'MX'),
+	('MX-QUE', 'Querétaro', 'MX', 'STATE', 'MX'),
+	('MX-ROO', 'Quintana Roo', 'MX', 'STATE', 'MX'),
+	('MX-SLP', 'San Luis Potosí', 'MX', 'STATE', 'MX'),
+	('MX-SIN', 'Sinaloa', 'MX', 'STATE', 'MX'),
+	('MX-SON', 'Sonora', 'MX', 'STATE', 'MX'),
+	('MX-TAB', 'Tabasco', 'MX', 'STATE', 'MX'),
+	('MX-TAM', 'Tamaulipas', 'MX', 'STATE', 'MX'),
+	('MX-TLA', 'Tlaxcala', 'MX', 'STATE', 'MX'),
+	('MX-VER', 'Veracruz', 'MX', 'STATE', 'MX'),
+	('MX-YUC', 'Yucatán', 'MX', 'STATE', 'MX'),
+	('MX-ZAC', 'Zacatecas', 'MX', 'STATE', 'MX'),
+	('US-CA-LAC', 'Los Angeles County, CA', 'US', 'COUNTY', 'US-CA'),
+	('US-NY-NYC', 'New York City, NY', 'US', 'MUNICIPAL', 'US-NY'),
+	('US-TX-HAR', 'Harris County, TX', 'US', 'COUNTY', 'US-TX'),
+	('CA-ON-TOR', 'City of Toronto, ON', 'CA', 'MUNICIPAL', 'CA-ON'),
+	('CA-BC-VAN', 'City of Vancouver, BC', 'CA', 'MUNICIPAL', 'CA-BC'),
+	('US', 'United States (Federal)', 'US', 'FEDERAL', NULL),
+	('CA', 'Canada (Federal)', 'CA', 'FEDERAL', NULL),
+	('MX', 'Mexico (Federal)', 'MX', 'FEDERAL', NULL),
+	('US-AL', 'Alabama', 'US', 'STATE', 'US'),
+	('US-AK', 'Alaska', 'US', 'STATE', 'US'),
+	('US-AZ', 'Arizona', 'US', 'STATE', 'US'),
+	('US-AR', 'Arkansas', 'US', 'STATE', 'US'),
+	('US-CA', 'California', 'US', 'STATE', 'US'),
+	('US-CO', 'Colorado', 'US', 'STATE', 'US'),
+	('US-CT', 'Connecticut', 'US', 'STATE', 'US'),
+	('US-DE', 'Delaware', 'US', 'STATE', 'US'),
+	('US-FL', 'Florida', 'US', 'STATE', 'US'),
+	('US-GA', 'Georgia', 'US', 'STATE', 'US'),
+	('US-HI', 'Hawaii', 'US', 'STATE', 'US'),
+	('US-ID', 'Idaho', 'US', 'STATE', 'US'),
+	('US-IL', 'Illinois', 'US', 'STATE', 'US'),
+	('US-IN', 'Indiana', 'US', 'STATE', 'US'),
+	('US-IA', 'Iowa', 'US', 'STATE', 'US'),
+	('US-ME', 'Maine', 'US', 'STATE', 'US'),
+	('US-MD', 'Maryland', 'US', 'STATE', 'US'),
+	('US-MA', 'Massachusetts', 'US', 'STATE', 'US'),
+	('US-MI', 'Michigan', 'US', 'STATE', 'US'),
+	('US-MN', 'Minnesota', 'US', 'STATE', 'US'),
+	('US-MS', 'Mississippi', 'US', 'STATE', 'US'),
+	('US-MO', 'Missouri', 'US', 'STATE', 'US'),
+	('US-NH', 'New Hampshire', 'US', 'STATE', 'US'),
+	('US-NJ', 'New Jersey', 'US', 'STATE', 'US'),
+	('US-NM', 'New Mexico', 'US', 'STATE', 'US'),
+	('US-NY', 'New York', 'US', 'STATE', 'US'),
+	('US-NC', 'North Carolina', 'US', 'STATE', 'US'),
+	('US-OR', 'Oregon', 'US', 'STATE', 'US'),
+	('US-PA', 'Pennsylvania', 'US', 'STATE', 'US'),
+	('US-RI', 'Rhode Island', 'US', 'STATE', 'US'),
+	('US-SC', 'South Carolina', 'US', 'STATE', 'US'),
+	('US-SD', 'South Dakota', 'US', 'STATE', 'US'),
+	('US-VT', 'Vermont', 'US', 'STATE', 'US'),
+	('US-VA', 'Virginia', 'US', 'STATE', 'US'),
+	('US-WA', 'Washington', 'US', 'STATE', 'US'),
+	('US-WV', 'West Virginia', 'US', 'STATE', 'US'),
+	('US-WI', 'Wisconsin', 'US', 'STATE', 'US'),
+	('US-GU', 'Guam', 'US', 'TERRITORY', 'US'),
+	('US-VI', 'U.S. Virgin Islands', 'US', 'TERRITORY', 'US'),
+	('CA-AB', 'Alberta', 'CA', 'PROVINCE', 'CA'),
+	('CA-BC', 'British Columbia', 'CA', 'PROVINCE', 'CA'),
+	('CA-ON', 'Ontario', 'CA', 'PROVINCE', 'CA'),
+	('CA-PE', 'Prince Edward Island', 'CA', 'PROVINCE', 'CA'),
+	('CA-QC', 'Quebec', 'CA', 'PROVINCE', 'CA'),
+	('CA-YT', 'Yukon', 'CA', 'TERRITORY', 'CA'),
+	('MX-AGU', 'Aguascalientes', 'MX', 'STATE', 'MX'),
+	('MX-BCN', 'Baja California', 'MX', 'STATE', 'MX'),
+	('MX-BCS', 'Baja California Sur', 'MX', 'STATE', 'MX'),
+	('US-KS', 'Kansas', 'US', 'STATE', 'US'),
+	('US-KY', 'Kentucky', 'US', 'STATE', 'US');
+
+
+--
+-- Data for Name: Policy; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+INSERT INTO "public"."Policy" ("id", "title", "country", "jurisdictionCode", "level", "agency", "industryTags", "topicTags", "status", "importance", "publishedAt", "effectiveAt", "lastUpdatedAt", "plainSummary", "fullSummary", "affectedOrgs", "requirements", "consequences", "deadlines", "sourceName", "sourceUrl", "isSampleData", "relatedIds") VALUES
+	('us-cpsc-general-certificate', 'General Certificate of Conformity for regulated consumer products', 'US', 'US', 'FEDERAL', 'U.S. Consumer Product Safety Commission (CPSC)', '{cross_border_ecommerce,imported_consumer_products,kitchen_robotics_machinery}', '{product_safety,product_standards,imports_customs}', 'IN_FORCE', 'HIGH', '2008-08-14 00:00:00', '2008-11-12 00:00:00', '2026-01-22 00:00:00', 'If you import or manufacture a consumer product that is covered by a CPSC safety rule, you must issue a written certificate saying the product complies. The certificate has to be based on a test or a reasonable testing program, must accompany the shipment, and must be available to CBP and CPSC on request.', 'A General Certificate of Conformity (GCC) applies to general-use consumer products subject to a CPSC rule, ban, standard or regulation. Children''s products require the stricter Children''s Product Certificate based on third-party testing at a CPSC-accepted laboratory. The certificate must identify the product, each rule it complies with, the importer or manufacturer, contact details for records custody, the date and place of manufacture, and the date and place of the testing relied upon.', '{"Importers of consumer products subject to any CPSC rule","Domestic manufacturers of regulated consumer products","Private-label sellers who are treated as the manufacturer"}', '[{"title": "Identify applicable CPSC rules", "detail": "Determine every standard, ban or regulation that applies to the product as sold."}, {"title": "Base certification on testing", "detail": "Use a reasonable testing program for general-use products; use third-party accredited testing for children''s products."}, {"title": "Issue the certificate in English", "detail": "The GCC must list each rule, the importer/manufacturer, records custodian contact, and manufacture and test dates and locations."}, {"title": "Furnish the certificate", "detail": "Provide it to distributors and retailers, and make it available electronically to CBP and CPSC."}]', '{"Refusal of admission of the shipment at the port","Civil penalties for failure to certify or for false certification","Stop-sale and recall exposure","Retailer chargebacks and delisting"}', '[{"date": "REL:+0", "label": "Certificate must exist before entry", "recurrence": "per_shipment", "description": "The GCC must be in place at the time the product is imported or distributed."}, {"date": "2026-09-30", "label": "Annual re-testing review", "recurrence": "annual", "description": "Review whether product or material changes require re-testing."}]', 'CPSC — Certificates of Compliance', 'https://www.cpsc.gov/Business--Manufacturing/Testing-Certification', true, '{us-cbp-importer-of-record,us-cpsc-flammability-1610}'),
+	('us-fda-general-wellness-device', 'General wellness products versus regulated medical devices', 'US', 'US', 'FEDERAL', 'U.S. Food and Drug Administration (FDA)', '{cross_border_ecommerce,imported_consumer_products,kitchen_robotics_machinery}', '{product_safety,product_standards}', 'IN_FORCE', 'HIGH', '2016-07-29 00:00:00', '2016-07-29 00:00:00', '2026-02-18 00:00:00', 'How you describe your product can change whether the FDA regulates it. A recovery or wellness product that only makes general wellness claims usually sits outside device regulation. The moment marketing claims treatment, cure, mitigation or diagnosis of a specific condition, the same physical product may become a regulated medical device.', 'FDA guidance on low-risk general wellness products describes two conditions: the product is intended only for general wellness use, and it presents a low risk to safety. Claims about relieving a named medical condition, treating inflammation as a disease process, or aiding recovery from a diagnosed injury push a product toward device classification, which brings registration, listing, labelling and possibly premarket submission obligations.', '{"Sellers of recovery, therapy-adjacent or wellness equipment","E-commerce brands writing product marketing copy","Importers of health-adjacent consumer hardware"}', '[{"title": "Review all marketing claims", "detail": "Audit website copy, ad creative, influencer briefs and packaging for disease or treatment claims."}, {"title": "Document the wellness intent", "detail": "Keep a written rationale for why the product qualifies as a general wellness product."}, {"title": "Register and list if a device", "detail": "If claims make the product a device, establishment registration and device listing obligations apply."}]', '{"FDA warning letter and required corrective advertising","Import alert and detention without physical examination","Marketing an unapproved or unlisted device"}', '[{"date": "2026-08-21", "label": "Marketing claim audit", "recurrence": "annual", "description": "Recommended annual review of product claims across all channels."}]', 'FDA — General Wellness: Policy for Low Risk Devices', 'https://www.fda.gov/regulatory-information/search-fda-guidance-documents/general-wellness-policy-low-risk-devices', true, '{us-cpsc-general-certificate}'),
+	('us-wa-sales-tax-nexus', 'Washington economic nexus, B&O tax and marketplace rules', 'US', 'US-WA', 'STATE', 'Washington State Department of Revenue', '{cross_border_ecommerce,imported_consumer_products,general_small_business}', '{taxation,business_registration,reporting}', 'IN_FORCE', 'MODERATE', '2019-03-14 00:00:00', '2020-01-01 00:00:00', '2026-02-10 00:00:00', 'Washington requires registration once cumulative gross receipts sourced to the state exceed 100,000 US dollars in the current or prior calendar year. Washington also levies a Business and Occupation tax on gross receipts, which applies separately from sales tax and has no deduction for costs.', 'The B&O tax is a gross-receipts tax with different rates per classification — retailing, wholesaling and service categories all differ. Remote sellers frequently register for sales tax and overlook the B&O obligation, which accrues on the same receipts. Destination-based sourcing means local rates follow the delivery address.', '{"Remote sellers with more than 100,000 dollars of Washington receipts","Wholesalers shipping into Washington"}', '[{"title": "Register a business licence", "detail": "Register through the Washington Business Licensing Service."}, {"title": "Collect destination-based sales tax", "detail": "Apply the combined state and local rate for the delivery address."}, {"title": "File and pay B&O tax", "detail": "Report gross receipts under the correct classification alongside sales tax."}]', '{"Back tax assessments across both sales tax and B&O tax","Penalties that escalate with the length of delinquency"}', '[{"date": "2026-10-25", "label": "Combined excise tax return", "recurrence": "quarterly", "description": "Quarterly combined return covering sales tax and B&O tax."}]', 'Washington DOR — Marketplace Fairness', 'https://dor.wa.gov/taxes-rates/retail-sales-tax/marketplace-fairness', true, '{us-ca-sales-tax-nexus,us-ny-sales-tax-nexus}'),
+	('ca-textile-labelling-act', 'Textile Labelling Act and CA identification numbers', 'CA', 'CA', 'FEDERAL', 'Competition Bureau Canada', '{textile_apparel_import,imported_consumer_products}', '{textile_labeling,product_standards}', 'IN_FORCE', 'HIGH', '1985-01-01 00:00:00', '1985-01-01 00:00:00', '2026-01-16 00:00:00', 'Textile products sold in Canada need a label showing fibre content in both English and French, plus the dealer''s name and address or a CA identification number issued by the Competition Bureau. The rules overlap with US labelling but are not identical, so a single label often has to satisfy both.', 'The Textile Labelling Act and Textile Labelling and Advertising Regulations require bilingual generic fibre names with percentages, and dealer identification either as full name and postal address or a CA number. Combined US/Canada labels are common but must satisfy both fibre-naming conventions and the French-language requirement. Quebec imposes additional French-language obligations.', '{"Apparel importers selling into Canada","US brands expanding into Canadian retail or e-commerce"}', '[{"title": "Bilingual fibre content", "detail": "Show generic fibre names and percentages in English and French."}, {"title": "Dealer identification", "detail": "Use full name and postal address, or apply for a CA identification number."}, {"title": "Align with US label content", "detail": "Design a combined label that satisfies both FTC and Competition Bureau rules."}]', '{"Retailer rejection and relabelling costs","Competition Bureau enforcement action"}', '[{"date": "2026-09-12", "label": "CA identification number application", "recurrence": "one_time", "description": "Apply before the first Canadian shipment if using a CA number."}]', 'Competition Bureau — Textile Labelling Act', 'https://ised-isde.canada.ca/site/competition-bureau-canada/en/textile-labelling-act', true, '{ca-packaging-labelling-bilingual,us-ftc-textile-labeling}'),
+	('us-country-of-origin-marking', 'Country of origin marking on imported articles', 'US', 'US', 'FEDERAL', 'U.S. Customs and Border Protection (CBP)', '{cross_border_ecommerce,imported_consumer_products,textile_apparel_import}', '{imports_customs,product_standards,textile_labeling}', 'IN_FORCE', 'HIGH', '1930-06-17 00:00:00', '1930-06-17 00:00:00', '2025-10-02 00:00:00', 'Nearly every imported article must be permanently and legibly marked with the English name of the country where it was made, in a place the end purchaser will see it. If the article itself cannot be marked, the container usually must be.', 'Section 304 of the Tariff Act of 1930 requires marking that is conspicuous, legible, indelible and permanent enough to reach the ultimate purchaser. Separate rules govern when a ''Made in USA'' claim can be made — the FTC requires that such products be ''all or virtually all'' made in the United States. Textile and apparel goods have additional origin rules based on where the fabric was formed and assembled.', '{"Importers of finished consumer goods","Businesses selling imported goods under their own brand","Anyone making origin claims in marketing"}', '[{"title": "Mark the article itself", "detail": "Use the English name of the country of origin in a conspicuous location that survives normal handling."}, {"title": "Mark the retail container", "detail": "Where the article cannot reasonably be marked, mark the container that reaches the purchaser."}, {"title": "Substantiate any ''Made in USA'' claim", "detail": "The FTC standard is ''all or virtually all'' domestic content, including for qualified claims."}]', '{"Additional 10 percent marking duty on unmarked goods","Detention until marked, exported or destroyed","FTC enforcement for deceptive origin claims"}', '[{"date": "REL:+0", "label": "Marking must be correct at entry", "recurrence": "per_shipment", "description": "Marking is checked at the time of importation."}]', 'CBP — Marking of Country of Origin', 'https://www.cbp.gov/trade/rulings/marking-country-origin', true, '{us-cbp-importer-of-record,us-ftc-textile-labeling}'),
+	('ca-packaging-labelling-bilingual', 'Bilingual labelling under the Consumer Packaging and Labelling Act', 'CA', 'CA', 'FEDERAL', 'Competition Bureau Canada', '{cross_border_ecommerce,imported_consumer_products,textile_apparel_import}', '{product_standards,textile_labeling}', 'IN_FORCE', 'MODERATE', '1985-01-01 00:00:00', '1985-01-01 00:00:00', '2025-12-03 00:00:00', 'Prepackaged consumer products sold in Canada must show the product identity and net quantity in both English and French, with metric units. The dealer''s name and place of business must also appear. Quebec adds further French-language requirements.', 'The CPLA requires three core label elements: product identity (bilingual), net quantity declaration (bilingual, metric, in a prescribed type height based on the principal display surface area), and the dealer name and principal place of business (may be in either official language). Quebec''s Charter of the French Language imposes additional obligations on packaging, documentation and commerce conducted in the province.', '{"Importers of prepackaged consumer products into Canada","US brands expanding into the Canadian market","Any seller listing physical goods to Canadian consumers"}', '[{"title": "Bilingual product identity", "detail": "State what the product is in both English and French."}, {"title": "Bilingual metric net quantity", "detail": "Declare net quantity in metric units using the prescribed minimum type height."}, {"title": "Dealer identity", "detail": "Show the name and principal place of business of the responsible dealer."}, {"title": "Check Quebec-specific rules", "detail": "French-language obligations in Quebec extend beyond the federal baseline."}]', '{"Products refused by Canadian retailers and distributors","Competition Bureau enforcement and required relabelling","Costly rework or repackaging of inventory already shipped"}', '[{"date": "2026-09-01", "label": "Label artwork review before first Canadian shipment", "recurrence": "one_time", "description": "Complete bilingual artwork before goods are shipped into Canada."}]', 'Competition Bureau — Consumer Packaging and Labelling Act', 'https://ised-isde.canada.ca/site/competition-bureau-canada/en/consumer-packaging-and-labelling-act', true, '{ca-consumer-product-safety-act,ca-textile-labelling-act}'),
+	('mx-nom-050-labelling', 'NOM-050-SCFI-2004 — commercial information labelling for products', 'MX', 'MX', 'FEDERAL', 'Secretaría de Economía / PROFECO', '{cross_border_ecommerce,imported_consumer_products,textile_apparel_import,kitchen_robotics_machinery}', '{product_standards,imports_customs}', 'IN_FORCE', 'HIGH', '2004-06-01 00:00:00', '2004-08-30 00:00:00', '2025-11-20 00:00:00', 'Products sold in Mexico must carry commercial information in Spanish: what the product is, who imports it, where it was made, and the quantity in metric units. Labels generally have to be applied before the goods clear customs unless you use an authorised bonded warehouse to label them.', 'NOM-050 sets the general commercial information requirements for products not covered by a product-specific NOM. Required elements include product name, brand, importer name and RFC tax ID, address, country of origin, net contents in the International System of Units, and warnings or usage instructions where relevant. Verification is carried out by PROFECO in the market and by customs at the point of entry.', '{"Importers selling consumer products in Mexico","US and Canadian brands expanding into Mexico","Distributors placing goods on Mexican shelves"}', '[{"title": "Spanish-language label", "detail": "All required commercial information must appear in Spanish."}, {"title": "Importer identification", "detail": "Show the importer name, RFC and address on the label."}, {"title": "Country of origin and net content", "detail": "Declare origin and metric net contents."}, {"title": "Label before or at customs clearance", "detail": "Use a bonded warehouse if labelling is done after arrival."}]', '{"Goods held at customs until labelled correctly","PROFECO fines and product immobilisation in the market","Retailer rejection of shipments"}', '[{"date": "2026-10-15", "label": "Label compliance check before shipment", "recurrence": "per_shipment", "description": "Verify NOM-050 elements before each shipment leaves the origin country."}]', 'Secretaría de Economía — Normas Oficiales Mexicanas', 'https://www.gob.mx/se/acciones-y-programas/normalizacion-normalizacion-nacional', true, '{mx-padron-importadores}'),
+	('us-ftc-care-labeling', 'Care Labeling Rule for textile wearing apparel', 'US', 'US', 'FEDERAL', 'U.S. Federal Trade Commission (FTC)', '{textile_apparel_import,imported_consumer_products}', '{textile_labeling,product_standards}', 'IN_FORCE', 'HIGH', '1971-12-03 00:00:00', '1972-07-03 00:00:00', '2025-09-16 00:00:00', 'Clothing must carry a permanent care label giving at least one safe cleaning method. You need a reasonable basis — usually testing or reliable evidence — for the instructions before the garment goes on sale, and you must warn about any procedure that would damage the garment.', 'The Rule requires a permanently attached care label with regular care instructions, including washing or dry-cleaning method, water temperature, drying, ironing and bleaching guidance where relevant. A reasonable basis must exist at the time the garment is sold — typically test data on the garment, a component, or reliable industry experience. Warnings are required where a normally expected procedure would harm the product.', '{"Apparel importers and manufacturers","Technical and performance outerwear brands"}', '[{"title": "Provide a permanent care label", "detail": "Attach a label that remains legible for the useful life of the garment."}, {"title": "Give one complete care method", "detail": "Include washing or dry-cleaning instructions with temperature and drying guidance."}, {"title": "Hold a reasonable basis", "detail": "Retain test results or documented evidence supporting the instructions."}, {"title": "Include warnings", "detail": "Warn where an ordinary care procedure would damage the item."}]', '{"FTC enforcement and civil penalties","Consumer complaints and returns driven by garment damage"}', '[{"date": "2026-10-09", "label": "Care instruction substantiation file review", "recurrence": "annual", "description": "Confirm test evidence exists for each active style."}]', 'FTC — Clothes Captioning: Complying with the Care Labeling Rule', 'https://www.ftc.gov/business-guidance/resources/clothes-captioning-complying-care-labeling-rule', true, '{us-ftc-textile-labeling}'),
+	('us-ftc-textile-labeling', 'Textile Fiber Products Identification Act labelling', 'US', 'US', 'FEDERAL', 'U.S. Federal Trade Commission (FTC)', '{textile_apparel_import,imported_consumer_products,cross_border_ecommerce}', '{textile_labeling,product_standards}', 'IN_FORCE', 'CRITICAL', '1958-09-02 00:00:00', '1960-03-03 00:00:00', '2026-02-25 00:00:00', 'Clothing and most textile products need a label showing the fibre content by percentage, the country where the product was processed or manufactured, and the identity of the company responsible. The label must be attached so it stays on until the consumer buys the item.', 'The Textile Act and its Rules require generic fibre names in order of predominance by weight, with percentages, plus the country of origin and either a company name or a registered identification number (RN). Fibres present at less than five percent must be listed as ''other fibre'' unless they have a functional significance. Online listings must disclose the fibre content and country of origin in the product description.', '{"Apparel importers and brands","Outdoor and technical clothing sellers","Anyone private-labelling textile goods"}', '[{"title": "Disclose fibre content", "detail": "List generic fibre names with percentages in order of predominance by weight."}, {"title": "Disclose country of origin", "detail": "State where the product was processed or manufactured."}, {"title": "Identify the responsible company", "detail": "Use the full company name or an FTC-issued RN number."}, {"title": "Attach labels durably", "detail": "Labels must remain attached and legible until delivered to the consumer."}, {"title": "Mirror disclosures online", "detail": "Fibre content and origin must appear in e-commerce product descriptions."}]', '{"FTC civil penalties per violation","Mandatory relabelling of inventory","Marketplace listing takedowns"}', '[{"date": "2026-08-14", "label": "RN number renewal check", "recurrence": "biennial", "description": "Confirm registered identification number details are current."}, {"date": "2026-09-05", "label": "Seasonal line label review", "recurrence": "annual", "description": "Review labelling for each new product line before production."}]', 'FTC — Threading Your Way Through the Labeling Requirements', 'https://www.ftc.gov/business-guidance/resources/threading-your-way-through-labeling-requirements-under-textile-wool-acts', true, '{us-ftc-care-labeling,us-cpsc-flammability-1610,us-country-of-origin-marking}'),
+	('ca-consumer-product-safety-act', 'Canada Consumer Product Safety Act — supplier duties and incident reporting', 'CA', 'CA', 'FEDERAL', 'Health Canada', '{cross_border_ecommerce,imported_consumer_products,textile_apparel_import,kitchen_robotics_machinery}', '{product_safety,product_standards,reporting}', 'IN_FORCE', 'HIGH', '2010-12-15 00:00:00', '2011-06-20 00:00:00', '2026-04-14 00:00:00', 'Anyone who manufactures, imports, advertises or sells consumer products in Canada must not supply a product that is a danger to human health or safety. If you learn of an incident involving your product, you must report it to Health Canada within two days and follow with a fuller report within ten days.', 'The CCPSA imposes a general prohibition on danger, mandatory incident reporting, document retention duties, and powers for the Minister to order recalls. ''Incident'' is defined broadly and includes occurrences that resulted or could reasonably have been expected to result in death or serious adverse health effects, as well as recalls ordered by a foreign regulator.', '{"Importers and retailers of consumer products in Canada","Manufacturers supplying the Canadian market","E-commerce sellers shipping to Canadian consumers"}', '[{"title": "Maintain traceability documents", "detail": "Retailers keep supplier name and address plus location and period of sale; others keep customer records — for six years."}, {"title": "Report incidents within 2 days", "detail": "Provide initial notice to Health Canada within two days of becoming aware of an incident."}, {"title": "File the detailed report within 10 days", "detail": "Include product identification, incident details, and proposed corrective action."}, {"title": "Meet applicable product-specific regulations", "detail": "Many categories have their own regulations layered on top of the general prohibition."}]', '{"Ministerial recall orders and mandatory corrective measures","Fines and, for serious contraventions, prosecution","Public posting on the Health Canada recalls database"}', '[{"date": "REL:+2", "label": "Incident initial report", "recurrence": "one_time", "description": "Two days from becoming aware of a reportable incident."}, {"date": "REL:+10", "label": "Incident detailed report", "recurrence": "one_time", "description": "Ten days from becoming aware of a reportable incident."}]', 'Health Canada — Canada Consumer Product Safety Act', 'https://www.canada.ca/en/health-canada/services/consumer-product-safety/legislation-guidelines/acts-regulations.html', true, '{ca-cbsa-carm-import,ca-textile-labelling-act}'),
+	('us-cbp-textile-declaration', 'Textile and apparel entry declarations and preferential origin claims', 'US', 'US', 'FEDERAL', 'U.S. Customs and Border Protection (CBP)', '{textile_apparel_import}', '{imports_customs,textile_labeling,reporting}', 'IN_FORCE', 'HIGH', '1996-07-01 00:00:00', '1996-07-01 00:00:00', '2026-04-08 00:00:00', 'Apparel imports face high duty rates and detailed origin rules. Where you claim duty-free or reduced-duty treatment under a trade agreement, you must be able to produce the supporting documentation, including the identity of the manufacturer and where the fabric was formed.', 'Textile origin is determined largely by where the fabric was formed and where the garment was assembled, rather than by the country of final shipment. USMCA preference claims for apparel typically require yarn-forward origin. CBP requires the Manufacturer Identification Code on entry and may issue requests for information seeking production records, cutting tickets and fabric mill certificates.', '{"Apparel and accessory importers","Brands sourcing from multiple countries within one style"}', '[{"title": "Determine textile origin correctly", "detail": "Apply the tariff-shift rules based on fabric formation and assembly."}, {"title": "Provide the Manufacturer Identification Code", "detail": "Report the MID for the actual producer on each entry."}, {"title": "Retain preference documentation", "detail": "Keep certifications of origin and mill records supporting any USMCA claim."}, {"title": "Respond to CBP requests for information", "detail": "Produce production records within the requested timeframe."}]', '{"Denial of preferential duty treatment and retroactive duty bills","Penalties for false origin claims","Increased exam rates on future shipments"}', '[{"date": "2026-08-31", "label": "Preference documentation audit", "recurrence": "annual", "description": "Review supplier certifications supporting duty-free claims."}]', 'CBP — Textiles and Wearing Apparel', 'https://www.cbp.gov/trade/priority-issues/textiles', true, '{us-cbp-importer-of-record,us-ftc-textile-labeling}'),
+	('us-ca-child-safety-screening', 'Background screening for staff working with minors', 'US', 'US-CA', 'STATE', 'California Department of Justice', '{education_tutoring}', '{employment,education_licensing,permits_licenses}', 'IN_FORCE', 'HIGH', '2012-09-30 00:00:00', '2013-01-01 00:00:00', '2026-03-19 00:00:00', 'Staff and volunteers who have supervisory or disciplinary contact with children generally need fingerprint-based background checks, and organisations must designate mandated reporters and train them. Records of clearances need to be kept current as staff turn over.', 'California requires Live Scan fingerprint submission for many roles involving regular contact with minors, with subsequent arrest notification enrolment so the organisation is informed of later arrests. The Child Abuse and Neglect Reporting Act designates categories of mandated reporters, including many education-adjacent roles, and requires training and a signed acknowledgement.', '{"Tutoring centres employing instructors","After-school and enrichment programmes","Organisations using volunteers with student contact"}', '[{"title": "Live Scan before student contact", "detail": "Complete fingerprint-based screening prior to unsupervised contact with minors."}, {"title": "Enrol in subsequent arrest notification", "detail": "Maintain ongoing notification so later arrests are reported to the organisation."}, {"title": "Mandated reporter training", "detail": "Train designated staff and retain signed acknowledgements."}, {"title": "Maintain clearance records", "detail": "Track clearance status per employee and re-screen on rehire."}]', '{"Liability exposure and insurance coverage issues","Loss of local permits or facility agreements","Criminal exposure for failure to report"}', '[{"date": "2026-08-12", "label": "Staff clearance audit", "recurrence": "annual", "description": "Verify every current instructor has an active clearance on file."}, {"date": "2026-11-30", "label": "Mandated reporter training refresh", "recurrence": "annual", "description": "Annual refresher training and re-acknowledgement."}]', 'California DOJ — Applicant Background Checks', 'https://oag.ca.gov/fingerprints', true, '{us-ca-bppe-tutoring-exemption}'),
+	('ca-on-private-career-colleges', 'Ontario Career Colleges Act registration and programme approval', 'CA', 'CA-ON', 'PROVINCE', 'Ontario Ministry of Colleges and Universities', '{education_tutoring}', '{education_licensing,permits_licenses,certification_renewals}', 'IN_FORCE', 'HIGH', '2005-12-15 00:00:00', '2006-09-18 00:00:00', '2026-05-04 00:00:00', 'In Ontario, an organisation that charges fees for vocational training must register as a career college and get each programme approved. Tutoring aimed at school subjects for children is generally outside this regime, but adult skills or certification programmes typically fall inside it.', 'The Ontario Career Colleges Act requires registration of the institution and separate approval of every vocational programme, together with financial security, a student contract in a prescribed form, refund policies and participation in the training completion assurance fund. Non-vocational tutoring is excluded, which makes the boundary between supplemental education and vocational training the key analysis for expanding tutoring businesses.', '{"Education providers expanding into Ontario","Tutoring businesses adding adult or certificate programmes"}', '[{"title": "Determine whether programmes are vocational", "detail": "Assess whether programmes prepare students for employment in a specific occupation."}, {"title": "Register the institution", "detail": "Apply for registration before advertising or enrolling students in vocational programmes."}, {"title": "Obtain per-programme approval", "detail": "Each vocational programme requires separate approval."}, {"title": "Use the prescribed student contract", "detail": "Adopt compliant contracts, fee schedules and refund policies."}]', '{"Orders to stop offering the programme","Refunds to students and fines","Public listing as an unregistered provider"}', '[{"date": "2026-12-31", "label": "Registration renewal", "recurrence": "annual", "description": "Career college registrations require periodic renewal."}, {"date": "2026-09-30", "label": "Programme scope review before Ontario launch", "recurrence": "one_time", "description": "Confirm classification before advertising in Ontario."}]', 'Ontario — Career colleges', 'https://www.ontario.ca/page/career-colleges', true, '{us-ca-bppe-tutoring-exemption}'),
+	('us-fda-food-code-equipment', 'FDA Food Code requirements for food equipment and food-contact surfaces', 'US', 'US', 'FEDERAL', 'U.S. Food and Drug Administration (FDA)', '{kitchen_robotics_machinery,food_service_technology}', '{food_sanitation,product_standards,certification_renewals}', 'IN_FORCE', 'CRITICAL', '2022-12-28 00:00:00', '2023-01-01 00:00:00', '2026-06-11 00:00:00', 'Equipment used in commercial food operations must be built so it can be cleaned properly. In practice this means food-contact surfaces have to be smooth, non-absorbent and corrosion-resistant, and equipment is expected to be certified to a recognised sanitation standard such as NSF/ANSI 2 or 4 before health inspectors will accept it.', 'The FDA Food Code is a model adopted, with variation, by state and local health jurisdictions. Chapter 4 addresses equipment design, construction, cleanability, and the requirement that equipment be certified or classified for sanitation by an ANSI-accredited certification programme. Automated and robotic kitchen equipment is evaluated on the same basis: accessibility for cleaning, absence of harbourage points and validated cleaning procedures.', '{"Manufacturers and suppliers of commercial kitchen equipment","Kitchen robotics and automation vendors","Operators installing equipment in permitted food establishments"}', '[{"title": "Design for cleanability", "detail": "Food-contact surfaces must be smooth, non-absorbent, corrosion-resistant and accessible for cleaning."}, {"title": "Obtain sanitation certification", "detail": "Certify equipment to NSF/ANSI 2 (food equipment) or NSF/ANSI 4 (cooking and hot food storage) as applicable."}, {"title": "Provide cleaning procedures", "detail": "Supply validated cleaning and sanitising instructions with the equipment."}, {"title": "Support plan review", "detail": "Provide specification sheets and certification marks for local plan review submissions."}]', '{"Equipment rejected at health department plan review","Customer installations shut down until equipment is replaced","Loss of distribution agreements with operators"}', '[{"date": "2026-09-14", "label": "NSF certification renewal", "recurrence": "annual", "description": "Annual audit and listing renewal for certified equipment."}, {"date": "2026-11-06", "label": "Food Code adoption review", "recurrence": "annual", "description": "Track which Food Code edition each target state has adopted."}]', 'FDA — Food Code', 'https://www.fda.gov/food/retail-food-protection/fda-food-code', true, '{us-nsf-equipment-certification,us-osha-machine-guarding,us-local-health-plan-review}'),
+	('us-osha-machine-guarding', 'Machine guarding requirements (29 CFR 1910.212)', 'US', 'US', 'FEDERAL', 'Occupational Safety and Health Administration (OSHA)', '{kitchen_robotics_machinery,food_service_technology}', '{machinery_safety,employment,product_standards}', 'IN_FORCE', 'HIGH', '1971-05-29 00:00:00', '1971-08-27 00:00:00', '2026-02-13 00:00:00', 'Machines with moving parts that can injure an operator must have guards. For automated equipment this usually means interlocked guarding, an emergency stop, and a documented lockout/tagout procedure for maintenance. Suppliers are expected to ship equipment that lets the buyer meet these duties.', '29 CFR 1910.212 requires one or more methods of machine guarding to protect operators from hazards such as nip points, rotating parts and flying chips. Related standards cover point-of-operation guarding, anchoring of fixed machinery and the control of hazardous energy (29 CFR 1910.147). Robotic cells are commonly assessed against ANSI/RIA R15.06 for risk assessment and safeguarding, and increasingly ISO 10218 for collaborative operation.', '{"Manufacturers and suppliers of powered commercial machinery","Employers operating automated equipment","Integrators installing robotic cells"}', '[{"title": "Provide effective guarding", "detail": "Guard nip points, rotating elements and points of operation."}, {"title": "Fit emergency stop and interlocks", "detail": "Ensure guards are interlocked and an accessible emergency stop is provided."}, {"title": "Document lockout/tagout", "detail": "Supply energy-isolation procedures for servicing and maintenance."}, {"title": "Perform a risk assessment", "detail": "Assess the installed configuration, including collaborative operation where applicable."}]', '{"OSHA citations, including willful and repeat classifications","Injury liability and workers'' compensation exposure","Customer refusal to accept installation"}', '[{"date": "2026-10-12", "label": "Machine safety risk assessment refresh", "recurrence": "annual", "description": "Update the assessment after any equipment or layout change."}, {"date": "2026-12-05", "label": "Lockout/tagout procedure review", "recurrence": "annual", "description": "Annual inspection of energy control procedures is required."}]', 'OSHA — Machine Guarding', 'https://www.osha.gov/machine-guarding', true, '{us-nsf-equipment-certification,us-fda-food-code-equipment}'),
+	('ca-cfia-food-contact-machinery', 'Canadian machinery safety and food-contact equipment expectations', 'CA', 'CA', 'FEDERAL', 'Canadian Food Inspection Agency / provincial OHS regulators', '{kitchen_robotics_machinery,food_service_technology}', '{food_sanitation,machinery_safety,product_standards,certification_renewals}', 'IN_FORCE', 'HIGH', '2018-06-13 00:00:00', '2019-01-15 00:00:00', '2026-03-31 00:00:00', 'Canada expects food equipment to be constructed of acceptable food-contact materials and to be cleanable, and expects electrical equipment to carry a certification mark from a body accredited by the Standards Council of Canada. A US UL mark alone is generally not accepted — a Canadian mark such as cUL or CSA is normally required.', 'The Safe Food for Canadians Regulations require preventive controls covering equipment design, maintenance and sanitation for licence holders. Provincial electrical safety authorities require equipment to bear a certification mark from an SCC-accredited body, with field evaluation available as an alternative for one-off installations. Machinery safety is regulated provincially under occupational health and safety legislation, commonly referencing CSA Z432.', '{"Equipment suppliers entering the Canadian market","US manufacturers exporting kitchen machinery to Canada"}', '[{"title": "Obtain a Canadian certification mark", "detail": "Certify to cUL, CSA or equivalent through an SCC-accredited body."}, {"title": "Document food-contact materials", "detail": "Provide evidence that materials are acceptable for food contact."}, {"title": "Meet provincial machine guarding rules", "detail": "Assess against CSA Z432 and provincial OHS requirements."}, {"title": "Plan for field evaluation", "detail": "Use field evaluation where certified product is not available for a specific installation."}]', '{"Electrical inspector red-tagging the installation","Equipment refused by Canadian operators","Delays and cost of field evaluation per unit"}', '[{"date": "2026-10-30", "label": "Canadian certification for export models", "recurrence": "one_time", "description": "Complete certification before the first Canadian shipment."}]', 'CFIA — Safe Food for Canadians Regulations', 'https://inspection.canada.ca/en/food-safety-industry/safe-food-canadians-regulations', true, '{us-nsf-equipment-certification,ca-consumer-product-safety-act}'),
+	('mx-nom-251-food-hygiene', 'NOM-251-SSA1-2009 — hygiene practices for food, beverages and supplements', 'MX', 'MX', 'FEDERAL', 'COFEPRIS', '{kitchen_robotics_machinery,food_service_technology}', '{food_sanitation,product_standards}', 'IN_FORCE', 'MODERATE', '2009-12-01 00:00:00', '2010-11-27 00:00:00', '2025-10-14 00:00:00', 'Mexico''s food hygiene standard sets rules for equipment and surfaces used in food processing and service: smooth, washable materials, no corrosion, a documented cleaning schedule, and records showing the schedule is followed.', 'NOM-251 covers hygiene practices across the food chain, including facility layout, equipment construction and maintenance, cleaning and sanitising programmes, pest control, personnel hygiene and documentation. Equipment suppliers are affected indirectly because operators need equipment that can demonstrably meet the standard, and COFEPRIS verification examines cleaning records tied to specific equipment.', '{"Food service operators in Mexico","Equipment suppliers selling into Mexican kitchens"}', '[{"title": "Use acceptable equipment materials", "detail": "Surfaces in contact with food must be smooth, washable and free of corrosion."}, {"title": "Provide a cleaning programme", "detail": "Supply cleaning and sanitising procedures with defined frequencies."}, {"title": "Maintain records", "detail": "Keep documented evidence that cleaning and maintenance were performed."}]', '{"COFEPRIS suspension of operations","Fines and product seizure"}', '[{"date": "2026-11-11", "label": "Cleaning programme documentation review", "recurrence": "annual", "description": "Update procedures supplied with equipment for the Mexican market."}]', 'COFEPRIS — Normatividad', 'https://www.gob.mx/cofepris', true, '{mx-nom-050-labelling,us-fda-food-code-equipment}'),
+	('ca-pipeda-privacy', 'PIPEDA — personal information handling and breach reporting', 'CA', 'CA', 'FEDERAL', 'Office of the Privacy Commissioner of Canada', '{telecommunications,cross_border_ecommerce,education_tutoring,general_small_business}', '{privacy,reporting}', 'IN_FORCE', 'HIGH', '2000-04-13 00:00:00', '2004-01-01 00:00:00', '2026-05-08 00:00:00', 'If your organisation collects personal information in the course of commercial activity in Canada, you need meaningful consent, a stated purpose, safeguards appropriate to the sensitivity of the data, and a way for people to access their information. Breaches that create a real risk of significant harm must be reported to the Privacy Commissioner and to affected individuals.', 'PIPEDA is built on ten fair information principles covering accountability, identifying purposes, consent, limiting collection, limiting use and retention, accuracy, safeguards, openness, individual access and challenging compliance. Since 2018, mandatory breach reporting requires notification as soon as feasible where a breach creates a real risk of significant harm, plus a breach record retained for 24 months regardless of whether it was reportable.', '{"Organisations handling personal information in Canada","Telecom providers holding subscriber and usage data","E-commerce and education businesses with Canadian customers"}', '[{"title": "Designate a privacy officer", "detail": "Name an individual accountable for compliance."}, {"title": "Obtain meaningful consent", "detail": "Explain purposes in plain language before or at collection."}, {"title": "Apply proportionate safeguards", "detail": "Protect information with measures matched to its sensitivity."}, {"title": "Report qualifying breaches", "detail": "Notify the OPC and affected individuals as soon as feasible where there is a real risk of significant harm."}, {"title": "Keep a breach log", "detail": "Record every breach of security safeguards and retain records for 24 months."}]', '{"Commissioner investigation and public findings","Federal Court orders and damages","Reputational harm from published breach findings"}', '[{"date": "REL:+3", "label": "Breach notification", "recurrence": "one_time", "description": "As soon as feasible after determining a reportable breach occurred."}, {"date": "2026-10-05", "label": "Annual privacy programme review", "recurrence": "annual", "description": "Review consent flows, retention schedules and the breach log."}]', 'OPC — PIPEDA', 'https://www.priv.gc.ca/en/privacy-topics/privacy-laws-in-canada/the-personal-information-protection-and-electronic-documents-act-pipeda/', true, '{ca-quebec-law-25,us-ca-cpra-privacy,ca-crtc-tsp-registration}'),
+	('us-fcc-form-499', 'FCC Form 499 filings and Universal Service Fund contributions', 'US', 'US', 'FEDERAL', 'Federal Communications Commission (FCC) / USAC', '{telecommunications}', '{telecom_regulation,reporting,taxation}', 'IN_FORCE', 'HIGH', '1997-05-08 00:00:00', '1998-01-01 00:00:00', '2026-05-15 00:00:00', 'Providers of interstate telecommunications must register with the FCC and report their revenues each year on Form 499-A, with quarterly Form 499-Q filings if they contribute to the Universal Service Fund. The annual filing is due 1 April and drives contribution obligations for the year.', 'Form 499-A reports prior-year revenues by category and is the basis for contributions to the Universal Service Fund, Telecommunications Relay Service fund, local number portability and North American Numbering Plan cost recovery. Form 499-Q projects revenues quarterly. A de minimis exemption applies where annual contribution would be below a threshold, but the 499-A filing obligation itself generally remains.', '{"Interstate telecommunications carriers","Interconnected VoIP providers","Resellers with US interstate revenue"}', '[{"title": "Register with the FCC", "detail": "Obtain an FCC Registration Number and file the initial Form 499-A."}, {"title": "File Form 499-A annually", "detail": "Report prior-calendar-year revenue by category by 1 April."}, {"title": "File Form 499-Q quarterly", "detail": "Contributors submit quarterly revenue projections."}, {"title": "Remit contributions", "detail": "Pay USF and related fund invoices from USAC on schedule."}]', '{"Late-filing fees and interest on unpaid contributions","Red Light status blocking other FCC applications","Enforcement action for non-filing"}', '[{"date": "2027-04-01", "label": "Form 499-A annual filing", "recurrence": "annual", "description": "Annual revenue report covering the prior calendar year."}, {"date": "2026-11-01", "label": "Form 499-Q quarterly filing", "recurrence": "quarterly", "description": "Quarterly projected revenue filing for contributors."}]', 'USAC — Form 499', 'https://www.usac.org/service-providers/making-payments/forms/', true, '{us-fcc-cpni}'),
+	('us-ca-bppe-tutoring-exemption', 'Private postsecondary approval and tutoring exemptions', 'US', 'US-CA', 'STATE', 'California Bureau for Private Postsecondary Education (BPPE)', '{education_tutoring}', '{education_licensing,permits_licenses,business_registration}', 'IN_FORCE', 'HIGH', '2009-10-11 00:00:00', '2010-01-01 00:00:00', '2026-02-06 00:00:00', 'California regulates institutions offering postsecondary education. A K-12 tutoring centre that does not award degrees or diplomas and does not prepare students for occupations usually falls outside BPPE approval, but the exemption is not automatic — you should document why it applies and revisit it if your programmes change.', 'The California Private Postsecondary Education Act requires approval to operate for institutions offering postsecondary education, with statutory exemptions including institutions offering solely avocational or recreational education and certain test-preparation and tutoring services. Because the exemption is fact-specific, providers commonly maintain a written analysis. Adding adult career or certification programmes typically removes the exemption.', '{"Tutoring and supplemental education centres","Test preparation providers","Learning franchises operating in California"}', '[{"title": "Document exemption analysis", "detail": "Record which statutory exemption applies and the programme facts supporting it."}, {"title": "Re-assess when programmes change", "detail": "Adding adult occupational or certificate programmes may trigger approval requirements."}, {"title": "Apply for approval if in scope", "detail": "Where no exemption applies, file an application for approval to operate before enrolling students."}]', '{"Orders to cease enrolment","Civil penalties for operating without approval","Student tuition recovery obligations"}', '[{"date": "2026-09-18", "label": "Annual exemption review", "recurrence": "annual", "description": "Confirm the exemption still fits the programmes offered."}]', 'California BPPE', 'https://www.bppe.ca.gov/', true, '{us-ca-la-business-tax-certificate,us-ca-child-safety-screening}'),
+	('us-federal-ein-annual-filings', 'Federal employer identification and annual business filings', 'US', 'US', 'FEDERAL', 'Internal Revenue Service (IRS)', '{general_small_business,education_tutoring,cross_border_ecommerce,food_service_technology}', '{business_registration,taxation,reporting}', 'IN_FORCE', 'MODERATE', '1986-10-22 00:00:00', '1987-01-01 00:00:00', '2026-01-12 00:00:00', 'Most businesses need a federal Employer Identification Number, then file an annual income tax return on a schedule that depends on the entity type. Employers also file quarterly payroll returns and annual wage statements.', 'Entity type drives the filing calendar: partnerships and S corporations file by 15 March, C corporations and sole proprietors by 15 April, all with extension options. Employers file Form 941 quarterly and issue Forms W-2 by 31 January. Businesses paying contractors 600 dollars or more issue Form 1099-NEC by the same date.', '{"Effectively all US businesses","Employers of any size","Businesses paying independent contractors"}', '[{"title": "Obtain an EIN", "detail": "Apply for a federal Employer Identification Number for the entity."}, {"title": "File the annual return", "detail": "File on the schedule matching the entity type, or file an extension."}, {"title": "File quarterly payroll returns", "detail": "Form 941 is due one month after each calendar quarter ends."}, {"title": "Issue W-2 and 1099 forms", "detail": "Provide wage and contractor statements by 31 January."}]', '{"Failure-to-file and failure-to-pay penalties","Interest accruing on unpaid balances","Trust fund recovery penalties for unpaid payroll taxes"}', '[{"date": "2026-11-02", "label": "Form 941 for Q3 2026", "recurrence": "quarterly", "description": "Quarterly payroll tax return."}, {"date": "2027-02-01", "label": "W-2 and 1099-NEC issuance", "recurrence": "annual", "description": "Statements due to recipients and to the agency."}]', 'IRS — Businesses', 'https://www.irs.gov/businesses', true, '{us-employment-i9-posters}'),
+	('us-ca-sales-tax-nexus', 'California economic nexus and sales tax registration for remote sellers', 'US', 'US-CA', 'STATE', 'California Department of Tax and Fee Administration (CDTFA)', '{cross_border_ecommerce,imported_consumer_products,general_small_business,education_tutoring}', '{taxation,business_registration,reporting}', 'IN_FORCE', 'HIGH', '2019-04-25 00:00:00', '2019-04-01 00:00:00', '2026-04-30 00:00:00', 'A business outside California still has to collect California sales tax once its sales into the state pass 500,000 US dollars in the current or previous calendar year. After registering you must file returns on the schedule CDTFA assigns, even for periods with no sales.', 'Following South Dakota v. Wayfair, California established an economic nexus threshold of 500,000 US dollars in total combined sales of tangible personal property delivered into the state. District taxes add local rates on top of the statewide rate, and a seller meeting the state threshold is also engaged in business in every district. Marketplace facilitators collect on behalf of their sellers, but a seller''s own direct-to-consumer channel remains its own responsibility.', '{"Remote sellers shipping tangible goods into California","Direct-to-consumer e-commerce brands","Businesses selling through both a marketplace and their own website"}', '[{"title": "Monitor the 500,000 dollar threshold", "detail": "Track combined sales into California for the current and prior calendar year."}, {"title": "Register for a seller''s permit", "detail": "Register with CDTFA before the first taxable sale after crossing the threshold."}, {"title": "Collect district taxes", "detail": "Apply the correct combined state, county and district rate for the ship-to address."}, {"title": "File returns on schedule", "detail": "File quarterly or as assigned, including zero returns."}]', '{"Assessment of uncollected tax plus interest","Late-filing and late-payment penalties","Personal liability for responsible persons in some cases"}', '[{"date": "2026-10-31", "label": "Q3 2026 sales tax return", "recurrence": "quarterly", "description": "Quarterly return and payment due at the end of the month following quarter end."}, {"date": "2026-09-15", "label": "Nexus threshold review", "recurrence": "annual", "description": "Review sales-by-state data to catch newly triggered nexus."}]', 'CDTFA — Use Tax Collection Requirements', 'https://www.cdtfa.ca.gov/industry/wayfair.htm', true, '{us-ny-sales-tax-nexus,us-wa-sales-tax-nexus}'),
+	('us-cpsc-flammability-1610', 'Standard for the Flammability of Clothing Textiles (16 CFR 1610)', 'US', 'US', 'FEDERAL', 'U.S. Consumer Product Safety Commission (CPSC)', '{textile_apparel_import,imported_consumer_products}', '{product_safety,textile_labeling,certification_renewals}', 'IN_FORCE', 'HIGH', '1953-06-30 00:00:00', '1954-07-01 00:00:00', '2026-03-27 00:00:00', 'Fabric used in clothing sold in the United States has to meet a flammability standard. Most ordinary fabrics are exempt from testing by weight or fibre type, but napped, brushed or lightweight fabrics usually need laboratory testing and supporting records before the garment can be certified.', '16 CFR 1610 classifies fabrics into Class 1 (normal flammability, acceptable for apparel), Class 2 and Class 3 (rapid and intense burning, not acceptable). Plain-surface fabrics weighing 2.6 ounces per square yard or more, and fabrics made entirely of acrylic, modacrylic, nylon, olefin, polyester or wool, qualify for exemption from testing. Raised-surface fabrics such as fleece frequently require testing, which is directly relevant to winter sportswear lines.', '{"Importers of apparel including outerwear and base layers","Sellers of fleece, brushed and napped fabrics"}', '[{"title": "Determine exemption status", "detail": "Confirm whether each fabric qualifies for the weight or fibre-content exemption."}, {"title": "Test non-exempt fabrics", "detail": "Use a testing laboratory to establish the flammability class for napped and lightweight fabrics."}, {"title": "Maintain a guaranty or test records", "detail": "Keep test reports or a continuing guaranty from the supplier."}, {"title": "Include the rule in the GCC", "detail": "List 16 CFR 1610 among the rules certified in the General Certificate of Conformity."}]', '{"Refusal of admission at import","Recall of non-conforming garments","Civil penalties for distributing banned hazardous products"}', '[{"date": "2026-08-18", "label": "Fabric test report renewal", "recurrence": "annual", "description": "Re-test where fabric supplier, construction or finish changes."}, {"date": "2026-09-25", "label": "Winter line certification cut-off", "recurrence": "annual", "description": "Certificates should be in hand before the season''s first shipment."}]', 'CPSC — Clothing Textiles Flammability Standard', 'https://www.cpsc.gov/Business--Manufacturing/Business-Education/Business-Guidance/Clothing-Textiles', true, '{us-cpsc-general-certificate,us-ftc-textile-labeling}'),
+	('us-ny-sales-tax-nexus', 'New York economic nexus and sales tax registration for remote sellers', 'US', 'US-NY', 'STATE', 'New York State Department of Taxation and Finance', '{cross_border_ecommerce,imported_consumer_products,textile_apparel_import,general_small_business}', '{taxation,business_registration,reporting}', 'IN_FORCE', 'MODERATE', '2019-01-15 00:00:00', '2019-06-21 00:00:00', '2026-03-05 00:00:00', 'New York applies a two-part test: a remote seller must register once it exceeds 500,000 US dollars of sales of tangible personal property delivered into New York and more than 100 separate transactions, both measured over the last four sales tax quarters. Clothing and footwear under 110 US dollars per item are exempt from the state portion of the tax.', 'Both prongs of the New York threshold must be met before registration is required, which distinguishes it from single-threshold states. The clothing exemption applies to the 4 percent state rate and to the MCTD rate within the district, while local county rates vary — some localities also exempt clothing and others do not. This makes apparel rate configuration a recurring source of error for small importers.', '{"Remote sellers shipping into New York","Apparel and footwear sellers","Sellers using both marketplaces and direct channels"}', '[{"title": "Apply the two-part threshold", "detail": "Track both dollar volume and transaction count over the trailing four quarters."}, {"title": "Register as a sales tax vendor", "detail": "Register with the Department before making taxable sales."}, {"title": "Configure the clothing exemption", "detail": "Apply the under-110-dollar clothing exemption correctly by locality."}, {"title": "File quarterly returns", "detail": "Quarterly filing periods end February, May, August and November."}]', '{"Assessment of uncollected tax, penalties and interest","Revocation of the certificate of authority"}', '[{"date": "2026-08-31", "label": "Sales tax quarter ends", "recurrence": "quarterly", "description": "Return generally due 20 days after the quarter ends."}, {"date": "2026-09-21", "label": "Q2 return filing date", "recurrence": "quarterly", "description": "Filing and payment for the quarter ending 31 August."}]', 'NY Department of Taxation and Finance — Registration requirement for businesses with no physical presence', 'https://www.tax.ny.gov/bus/st/registration_requirement_for_businesses_with_no_physical_presence_in_nys.htm', true, '{us-ca-sales-tax-nexus,us-ftc-textile-labeling}'),
+	('us-employment-i9-posters', 'Employment eligibility verification and workplace notice postings', 'US', 'US', 'FEDERAL', 'U.S. Department of Homeland Security / Department of Labor', '{general_small_business,education_tutoring,food_service_technology,kitchen_robotics_machinery,telecommunications}', '{employment,reporting}', 'IN_FORCE', 'MODERATE', '1986-11-06 00:00:00', '1987-06-01 00:00:00', '2026-04-02 00:00:00', 'Every US employer must complete Form I-9 for each new hire within three business days of the start date, keep it for a defined retention period, and display required federal and state workplace posters where employees can see them.', 'Section 1 of Form I-9 is completed by the employee no later than the first day of work; Section 2 by the employer within three business days. Forms are retained for three years after hire or one year after termination, whichever is later. Federal posting requirements cover FLSA, OSHA, FMLA where applicable, EEO and USERRA, with additional state-specific postings.', '{"Any US employer","Businesses hiring their first employee","Employers with remote staff across multiple states"}', '[{"title": "Complete I-9 on time", "detail": "Employee section by day one; employer section within three business days."}, {"title": "Retain and purge on schedule", "detail": "Keep for three years after hire or one year after termination, whichever is later."}, {"title": "Display required posters", "detail": "Post federal and state notices in a location accessible to all employees."}, {"title": "Apply state-specific rules", "detail": "Add state postings and any state-mandated notices at hire."}]', '{"Civil fines per I-9 paperwork violation","Higher penalties for knowingly employing unauthorised workers","Department of Labor citations for missing postings"}', '[{"date": "2026-09-08", "label": "I-9 audit", "recurrence": "annual", "description": "Internal audit of I-9 completeness and retention purging."}, {"date": "2027-01-15", "label": "Poster set refresh", "recurrence": "annual", "description": "Replace posters when agencies update required notices."}]', 'USCIS — I-9 Central', 'https://www.uscis.gov/i-9-central', true, '{us-federal-ein-annual-filings}'),
+	('us-tx-equipment-property-tax', 'Texas business personal property tax rendition', 'US', 'US-TX', 'STATE', 'County appraisal districts / Texas Comptroller', '{kitchen_robotics_machinery,food_service_technology,general_small_business}', '{taxation,reporting}', 'IN_FORCE', 'MODERATE', '2003-09-01 00:00:00', '2004-01-01 00:00:00', '2026-01-24 00:00:00', 'Texas taxes business equipment and inventory. Businesses must file a rendition listing what they own as of 1 January with the county appraisal district by 15 April each year. Missing the deadline adds a penalty on top of the tax.', 'The rendition reports business personal property — equipment, furniture, fixtures, inventory and vehicles — with a good-faith estimate of market value or original cost by year of acquisition. An extension to 15 May is available on written request. A 10 percent penalty applies for failure to render, and 50 percent for fraudulent renditions.', '{"Businesses holding equipment or inventory in Texas","Equipment suppliers with demo or loaner units in the state"}', '[{"title": "Inventory property as of 1 January", "detail": "Capture equipment, fixtures and inventory held on the assessment date."}, {"title": "File the rendition by 15 April", "detail": "Submit to each county appraisal district where property is located."}, {"title": "Request an extension if needed", "detail": "Written request extends the deadline to 15 May."}]', '{"10 percent penalty for failure to render","Appraisal district estimates value without your input","Interest on late tax payments"}', '[{"date": "2027-04-15", "label": "Business personal property rendition", "recurrence": "annual", "description": "Annual rendition deadline for Texas county appraisal districts."}, {"date": "2027-01-10", "label": "Fixed asset register update", "recurrence": "annual", "description": "Reconcile the asset register before rendition preparation."}]', 'Texas Comptroller — Business Personal Property', 'https://comptroller.texas.gov/taxes/property-tax/', true, '{us-local-health-plan-review}'),
+	('mx-padron-importadores', 'Padrón de Importadores registration', 'MX', 'MX', 'FEDERAL', 'Servicio de Administración Tributaria (SAT)', '{cross_border_ecommerce,imported_consumer_products,textile_apparel_import,kitchen_robotics_machinery}', '{imports_customs,business_registration,taxation}', 'IN_FORCE', 'CRITICAL', '1996-01-01 00:00:00', '1996-01-01 00:00:00', '2026-01-30 00:00:00', 'To import commercially into Mexico a company must be listed on the importers registry held by the tax authority. Some product categories, including textiles and footwear, require an additional sector-specific registration. Registration can be suspended if tax obligations are not current.', 'Registration in the Padrón de Importadores requires an active RFC, a valid advanced electronic signature (e.firma), a registered tax domicile and being current on tax obligations. Sectoral registries (Padrones Sectoriales) apply to sensitive categories such as textiles, footwear, steel and alcohol. Suspension is common and is typically triggered by tax-compliance discrepancies rather than customs issues.', '{"Companies importing commercially into Mexico","Foreign brands establishing a Mexican entity","Textile and footwear importers requiring the sectoral registry"}', '[{"title": "Hold an active RFC and e.firma", "detail": "The importing entity must have a valid tax ID and electronic signature."}, {"title": "Register in the general importers registry", "detail": "Submit the application through the SAT portal."}, {"title": "Add sectoral registries where required", "detail": "Textiles, footwear and other sensitive sectors need extra enrolment."}, {"title": "Stay current on tax obligations", "detail": "Outstanding filings or debts are the leading cause of suspension."}]', '{"Inability to clear commercial shipments","Suspension from the registry with a formal reinstatement process","Demurrage and storage costs on stranded shipments"}', '[{"date": "2026-09-10", "label": "Registry status verification", "recurrence": "quarterly", "description": "Confirm the registry entry is active before booking freight."}]', 'SAT — Padrón de Importadores', 'https://www.sat.gob.mx/tramites/operacion-aduanera', true, '{mx-nom-050-labelling}'),
+	('us-ca-la-business-tax-certificate', 'Los Angeles Business Tax Registration Certificate', 'US', 'US-CA-LAC', 'COUNTY', 'City of Los Angeles Office of Finance', '{education_tutoring,general_small_business,food_service_technology}', '{business_registration,permits_licenses,taxation}', 'IN_FORCE', 'MODERATE', '2000-01-01 00:00:00', '2000-01-01 00:00:00', '2026-01-05 00:00:00', 'Businesses operating in the City of Los Angeles need a Business Tax Registration Certificate and must renew it every year, with the renewal filed by the end of February. Small businesses under a gross-receipts threshold may qualify for an exemption but still have to file the renewal to claim it.', 'The BTRC is required before conducting business in the city. Tax is calculated on gross receipts under a classification schedule. The Small Business Exemption applies below a gross-receipts threshold, and the Creative Artist Exemption applies to certain categories, but both require a timely renewal filing — a late filing forfeits the exemption for the year.', '{"Any business with a physical location in Los Angeles","Service businesses operating in the city","Tutoring centres and instructional facilities"}', '[{"title": "Register before operating", "detail": "Obtain the BTRC prior to starting business activity in the city."}, {"title": "File the annual renewal", "detail": "Renewal is due by 28 February each year based on the prior year''s gross receipts."}, {"title": "Claim exemptions on time", "detail": "The Small Business Exemption must be claimed through a timely filed renewal."}]', '{"Loss of the small business exemption for the year","Penalties and interest on unpaid business tax","Inability to obtain other city permits"}', '[{"date": "2027-02-28", "label": "BTRC annual renewal", "recurrence": "annual", "description": "Annual renewal filing deadline for the City of Los Angeles."}, {"date": "2027-01-31", "label": "Gross receipts records prepared", "recurrence": "annual", "description": "Prepare prior-year gross receipts by classification."}]', 'City of Los Angeles — Office of Finance', 'https://finance.lacity.gov/', true, '{us-ca-bppe-tutoring-exemption,us-local-occupancy-fire-permit}'),
+	('us-nsf-equipment-certification', 'NSF/ANSI and NRTL certification for commercial food equipment', 'US', 'US', 'FEDERAL', 'ANSI-accredited certification bodies / OSHA-recognised NRTLs', '{kitchen_robotics_machinery,food_service_technology}', '{product_standards,certification_renewals,machinery_safety,food_sanitation}', 'IN_FORCE', 'HIGH', '2019-03-01 00:00:00', '2019-03-01 00:00:00', '2026-05-27 00:00:00', 'Commercial kitchen equipment normally carries two separate marks: a sanitation certification such as NSF, and an electrical safety certification from a Nationally Recognized Testing Laboratory such as UL or Intertek. Both involve initial testing and recurring factory audits — the mark lapses if the audits are missed.', 'Sanitation certification is evaluated against NSF/ANSI standards for materials, design and construction. Electrical safety certification against UL 197 (commercial electric cooking appliances) or UL 763 (motor-operated commercial food preparing machines) is performed by an NRTL. Both schemes require unannounced factory inspections, typically quarterly or semi-annually, and any design change requires notification and possible re-evaluation.', '{"Equipment manufacturers and OEM suppliers","Importers placing branded equipment on the US market","Robotics vendors integrating heating or motor-driven elements"}', '[{"title": "Certify to the sanitation standard", "detail": "Test and list the product under the applicable NSF/ANSI standard."}, {"title": "Obtain NRTL electrical listing", "detail": "Certify to UL 197, UL 763 or the relevant standard through an OSHA-recognised NRTL."}, {"title": "Maintain factory audits", "detail": "Host recurring unannounced inspections to keep the listing active."}, {"title": "Notify on design changes", "detail": "Report material, component or construction changes to the certification body."}]', '{"Listing suspension and loss of the right to use the mark","Products refused by inspectors and distributors","Recertification cost and lead time on relaunch"}', '[{"date": "2026-08-24", "label": "Semi-annual factory audit window", "recurrence": "biennial", "description": "Prepare production records and samples for the audit."}, {"date": "2026-12-15", "label": "UL listing annual fee and review", "recurrence": "annual", "description": "Maintain the listing to keep the mark valid."}]', 'OSHA — Nationally Recognized Testing Laboratory Program', 'https://www.osha.gov/nationally-recognized-testing-laboratory-program', true, '{us-fda-food-code-equipment,us-osha-machine-guarding}'),
+	('ca-crtc-tsp-registration', 'CRTC telecommunications service provider registration and reporting', 'CA', 'CA', 'FEDERAL', 'Canadian Radio-television and Telecommunications Commission (CRTC)', '{telecommunications}', '{telecom_regulation,reporting,business_registration}', 'IN_FORCE', 'HIGH', '2021-03-25 00:00:00', '2021-09-01 00:00:00', '2026-06-02 00:00:00', 'Companies that provide telecommunications services in Canada must register with the CRTC, file an annual data collection return, and contribute to the national contribution fund once revenues pass the threshold. Registration applies to resellers and software-based providers, not only to facilities-based carriers.', 'Registration requires basic corporate information and a description of services offered. The annual Data Collection System filing reports Canadian telecommunications service revenues by category. Contribution-eligible revenue above the threshold triggers monthly contribution payments administered by the central fund administrator. Additional obligations attach for providers offering voice services, including 9-1-1 obligations and outage reporting.', '{"Telecom carriers, resellers and MVNOs operating in Canada","Software providers delivering telecommunications services","Foreign providers serving Canadian subscribers"}', '[{"title": "Register as a TSP", "detail": "Submit CRTC registration before or shortly after beginning to offer service."}, {"title": "File the annual data collection return", "detail": "Report Canadian telecommunications revenues by service category."}, {"title": "Assess contribution obligations", "detail": "Determine contribution-eligible revenue and remit where the threshold is exceeded."}, {"title": "Meet service-specific duties", "detail": "Voice providers face 9-1-1, accessibility and outage reporting obligations."}]', '{"Administrative monetary penalties","Mandatory orders to file and pay arrears","Public compliance proceedings"}', '[{"date": "2027-03-31", "label": "Annual data collection filing", "recurrence": "annual", "description": "Annual telecommunications revenue return to the CRTC."}, {"date": "2026-09-30", "label": "Contribution eligibility assessment", "recurrence": "annual", "description": "Reassess contribution-eligible revenue for the year."}]', 'CRTC — Telecommunications', 'https://crtc.gc.ca/eng/telecom.htm', true, '{ca-pipeda-privacy,ca-casl-anti-spam}'),
+	('us-local-occupancy-fire-permit', 'Certificate of occupancy and fire inspection for instructional space', 'US', 'US-CA-LAC', 'COUNTY', 'Local building and fire departments', '{education_tutoring,general_small_business,food_service_technology}', '{permits_licenses,certification_renewals}', 'IN_FORCE', 'MODERATE', '2006-01-01 00:00:00', '2006-01-01 00:00:00', '2025-08-21 00:00:00', 'Using a space for classes usually requires an occupancy classification that permits assembly or educational use. Changing a retail unit into a classroom often needs a change-of-use approval, a fire inspection and posted occupant load before students can be on site.', 'Building codes assign occupancy groups, and instructional use of previously retail or office space may constitute a change of occupancy requiring plan review, accessibility upgrades and fire-protection measures. Annual fire inspections are common for assembly and educational occupancies, covering exits, extinguishers, emergency lighting and posted occupant load.', '{"Learning centres leasing commercial space","Any business converting space to a new use"}', '[{"title": "Confirm occupancy classification", "detail": "Verify the certificate of occupancy allows educational or assembly use."}, {"title": "Obtain change-of-use approval", "detail": "File plans if converting retail or office space to instructional use."}, {"title": "Pass fire inspection", "detail": "Maintain exits, extinguishers, emergency lighting and posted occupant load."}]', '{"Order to vacate or stop using the space","Fines and re-inspection fees","Insurance claim denial after an incident"}', '[{"date": "2026-10-20", "label": "Annual fire inspection", "recurrence": "annual", "description": "Schedule and pass the annual fire safety inspection."}]', 'City of Los Angeles — Building and Safety', 'https://www.ladbs.org/', true, '{us-ca-la-business-tax-certificate}'),
+	('us-cbp-importer-of-record', 'Importer of Record obligations and formal entry filing', 'US', 'US', 'FEDERAL', 'U.S. Customs and Border Protection (CBP)', '{cross_border_ecommerce,imported_consumer_products,textile_apparel_import,kitchen_robotics_machinery}', '{imports_customs,reporting}', 'IN_FORCE', 'CRITICAL', '1993-12-08 00:00:00', '1994-01-01 00:00:00', '2026-03-11 00:00:00', 'If your company brings goods into the United States, someone has to be legally responsible for that shipment. That party is the Importer of Record. You must declare what the goods are, where they were made, what they are worth, and pay any duty owed. Shipments valued above the de minimis threshold need a formal entry filed within a set window after arrival.', 'The Importer of Record (IOR) is legally liable for the accuracy of the entry, the classification under the Harmonized Tariff Schedule, the declared customs value, and payment of duties, taxes and fees. Most small importers appoint a licensed customs broker to file on their behalf, but appointing a broker does not transfer legal liability. CBP applies ''reasonable care'' as the standard: the importer is expected to take active steps to get classification and valuation right, not merely to rely on a supplier''s paperwork.', '{"Any business that imports goods into the United States for resale","E-commerce sellers using overseas manufacturers","Businesses importing equipment for their own commercial use"}', '[{"title": "Obtain an importer number", "detail": "Use your EIN, or file CBP Form 5106 to establish an importer identity if you do not have one."}, {"title": "Classify goods under the HTS", "detail": "Assign the correct 10-digit Harmonized Tariff Schedule code. Classification drives the duty rate and any special programs that apply."}, {"title": "Declare correct customs value", "detail": "Normally transaction value — the price actually paid or payable, plus certain additions such as assists and packing."}, {"title": "File entry within the deadline", "detail": "Entry summary and duty payment are generally due within 10 working days of release for standard entries."}, {"title": "Post a customs bond", "detail": "A continuous bond (or single-transaction bond) is required for commercial formal entries."}, {"title": "Keep records for five years", "detail": "Invoices, packing lists, entry documents and classification support must be retained and produced on request."}]', '{"Monetary penalties for negligence, gross negligence or fraud under 19 U.S.C. 1592","Liquidated damages against the customs bond","Shipment holds, exams and detention at the port","Loss of expedited release privileges"}', '[{"date": "REL:+18", "label": "Entry summary and duty payment", "recurrence": "per_shipment", "description": "Generally 10 working days from release of the merchandise."}, {"date": "2026-11-15", "label": "Annual customs bond review", "recurrence": "annual", "description": "Confirm the continuous bond amount still covers projected duty volume."}]', 'CBP — Importing into the United States', 'https://www.cbp.gov/trade/basic-import-export', true, '{us-cpsc-general-certificate,us-country-of-origin-marking}'),
+	('ca-quebec-law-25', 'Quebec Law 25 — privacy modernisation obligations', 'CA', 'CA-QC', 'PROVINCE', 'Commission d''accès à l''information du Québec', '{telecommunications,cross_border_ecommerce,general_small_business}', '{privacy,reporting}', 'IN_FORCE', 'HIGH', '2021-09-22 00:00:00', '2023-09-22 00:00:00', '2026-04-17 00:00:00', 'Quebec has stricter privacy rules than the rest of Canada. Organisations must appoint a privacy officer and publish their contact details, run privacy impact assessments before new systems or cross-border transfers, get express consent for sensitive information, and since 2024 support data portability.', 'Law 25 amended Quebec''s private-sector privacy statute in phases. Key obligations include appointing and publishing a person in charge of protection of personal information, confidentiality-by-default settings for products with privacy settings, privacy impact assessments for information system projects and for disclosures outside Quebec, transparency about automated decision-making, and a right to data portability. Penalties are substantially higher than PIPEDA, reaching a percentage of worldwide turnover for serious offences.', '{"Any organisation handling personal information of people in Quebec","Telecom and digital service providers with Quebec subscribers","Businesses transferring Quebec data outside the province"}', '[{"title": "Appoint and publish a privacy officer", "detail": "Name the person in charge and publish their title and contact details on the website."}, {"title": "Conduct privacy impact assessments", "detail": "Assess new information system projects and any transfer of data outside Quebec."}, {"title": "Default to maximum confidentiality", "detail": "Products with privacy settings must default to the highest confidentiality level."}, {"title": "Support data portability", "detail": "Provide computerised personal information in a structured, commonly used technological format on request."}, {"title": "Disclose automated decisions", "detail": "Inform individuals when a decision is based exclusively on automated processing."}]', '{"Administrative monetary penalties up to a percentage of worldwide turnover","Penal fines for serious offences","Private right of action with punitive damages"}', '[{"date": "2026-08-28", "label": "Privacy impact assessment for new cross-border transfer", "recurrence": "ongoing", "description": "Required before transferring personal information outside Quebec."}, {"date": "2026-12-10", "label": "Annual policy and register refresh", "recurrence": "annual", "description": "Update the privacy governance register and published policies."}]', 'Commission d''accès à l''information du Québec', 'https://www.cai.gouv.qc.ca/', true, '{ca-pipeda-privacy,us-ca-cpra-privacy}'),
+	('us-fcc-cpni', 'FCC Customer Proprietary Network Information rules', 'US', 'US', 'FEDERAL', 'Federal Communications Commission (FCC)', '{telecommunications}', '{telecom_regulation,privacy,reporting,certification_renewals}', 'IN_FORCE', 'HIGH', '2007-04-02 00:00:00', '2007-12-08 00:00:00', '2026-02-28 00:00:00', 'Telecom carriers must protect information about who customers call and what services they buy. Every year, an officer of the company has to file a signed certification with the FCC confirming the company has procedures in place, and describing any complaints received about unauthorised disclosure.', 'CPNI rules restrict use and disclosure of call detail and service information, require customer authentication before disclosing call detail records, mandate notification to customers when account passwords or addresses change, and require notice to law enforcement and customers after a CPNI breach. The annual officer certification, with an accompanying statement of compliance procedures, is due by 1 March covering the prior calendar year.', '{"Telecommunications carriers and interconnected VoIP providers in the US","Resellers of telecom services"}', '[{"title": "Maintain CPNI procedures", "detail": "Document how CPNI is used, disclosed and protected across systems and vendors."}, {"title": "Authenticate before disclosure", "detail": "Verify customer identity before releasing call detail information."}, {"title": "File the annual officer certification", "detail": "An officer must sign and file the certification with a compliance statement by 1 March."}, {"title": "Report breaches", "detail": "Notify law enforcement through the central reporting facility and then customers, per the rules."}]', '{"Forfeiture orders and monetary penalties","Consent decrees with compliance plans","Enforcement advisories naming non-filers"}', '[{"date": "2027-03-01", "label": "Annual CPNI officer certification", "recurrence": "annual", "description": "Covers the prior calendar year; signed by a corporate officer."}, {"date": "2026-11-20", "label": "CPNI training refresh", "recurrence": "annual", "description": "Retrain staff with access to customer records."}]', 'FCC — Customer Privacy', 'https://www.fcc.gov/general/customer-privacy', true, '{us-fcc-form-499,us-ca-cpra-privacy}'),
+	('mx-ift-telecom-registry', 'IFT telecommunications provider registration in Mexico', 'MX', 'MX', 'FEDERAL', 'Instituto Federal de Telecomunicaciones (IFT)', '{telecommunications}', '{telecom_regulation,business_registration,reporting}', 'IN_FORCE', 'MODERATE', '2014-07-14 00:00:00', '2014-08-13 00:00:00', '2026-03-06 00:00:00', 'Providing telecommunications services in Mexico normally requires either a single concession from the regulator or, for some resale models, an authorisation. Providers are entered in the public telecommunications registry and must file periodic information about their services and coverage.', 'The Federal Telecommunications and Broadcasting Law established a converged single concession model. Providers register in the Registro Público de Concesiones, and must comply with user rights rules, quality-of-service metrics and information filings. Resellers may operate under authorisation rather than a full concession depending on the service model.', '{"Telecom operators and resellers serving Mexican customers","Foreign providers expanding into Mexico"}', '[{"title": "Determine concession or authorisation route", "detail": "Assess which instrument matches the service model."}, {"title": "Register in the public registry", "detail": "Ensure the concession or authorisation is recorded with IFT."}, {"title": "Meet user rights and quality rules", "detail": "Comply with the collaboration, transparency and quality obligations."}]', '{"Sanctions and fines from IFT","Order to suspend service provision"}', '[{"date": "2027-03-31", "label": "Annual information filing", "recurrence": "annual", "description": "Periodic information filings to the regulator."}]', 'IFT — Trámites y servicios', 'https://www.ift.org.mx/', true, '{ca-crtc-tsp-registration,us-fcc-form-499}'),
+	('ca-bc-business-licence', 'British Columbia municipal business licence and provincial registration', 'CA', 'CA-BC', 'PROVINCE', 'BC Registries and municipal licensing offices', '{general_small_business,education_tutoring,food_service_technology}', '{business_registration,permits_licenses,taxation}', 'IN_FORCE', 'MODERATE', '2004-03-29 00:00:00', '2004-03-29 00:00:00', '2025-12-18 00:00:00', 'Operating in British Columbia usually needs both a provincial registration and a municipal business licence from each city where you have a location. Municipal licences renew annually, and some cities require an inter-municipal licence if you work across boundaries.', 'Extraprovincial companies register with BC Registries within a set period of beginning to carry on business in the province. Municipal licences are issued per location and often depend on zoning approval and, for instructional or food premises, health or fire sign-off. The Inter-municipal Business Licence programme lets mobile businesses operate across participating municipalities under one licence.', '{"Businesses opening a location in British Columbia","Out-of-province companies expanding into BC"}', '[{"title": "Register extraprovincially", "detail": "File with BC Registries when beginning to carry on business in the province."}, {"title": "Obtain a municipal licence", "detail": "Apply in each municipality where the business has premises."}, {"title": "Confirm zoning", "detail": "Check that the intended use is permitted at the address before signing a lease."}, {"title": "Renew annually", "detail": "Municipal licences generally renew on a calendar-year cycle."}]', '{"Fines and orders to cease operating","Inability to obtain building or health permits"}', '[{"date": "2027-01-31", "label": "Municipal business licence renewal", "recurrence": "annual", "description": "Most BC municipalities renew licences early in the calendar year."}]', 'BC Registries and Online Services', 'https://www2.gov.bc.ca/gov/content/employment-business/business', true, '{ca-gst-hst-registration}'),
+	('ca-cbsa-carm-import', 'CARM importer registration and commercial accounting declarations', 'CA', 'CA', 'FEDERAL', 'Canada Border Services Agency (CBSA)', '{cross_border_ecommerce,imported_consumer_products,textile_apparel_import,kitchen_robotics_machinery}', '{imports_customs,taxation,reporting}', 'IN_FORCE', 'CRITICAL', '2024-05-13 00:00:00', '2024-10-21 00:00:00', '2026-05-19 00:00:00', 'Commercial importers into Canada must have their own CARM Client Portal account, delegate authority to their customs broker, and post their own financial security. Accounting for goods and payment of duties and GST now runs through the importer''s portal account rather than sitting entirely with the broker.', 'The CBSA Assessment and Revenue Management system replaced the previous accounting model. Importers register with a Business Number and RM import/export program account, then either post a financial security instrument or pay upfront. Commercial Accounting Declarations replace the older B3 and B2 forms, with correction and adjustment periods defined by statement cycles.', '{"Any business importing commercial goods into Canada","Non-resident importers selling into Canada","Businesses that previously relied entirely on a broker''s bond"}', '[{"title": "Register in the CARM Client Portal", "detail": "Create a business account tied to your Business Number and RM program account."}, {"title": "Post financial security", "detail": "Obtain a customs bond or make cash security available to gain release-prior-to-payment privileges."}, {"title": "Delegate broker authority", "detail": "Grant your customs broker the appropriate access level in the portal."}, {"title": "Reconcile statements of account", "detail": "Review monthly statements and submit corrections within the allowed window."}]', '{"Loss of release-prior-to-payment privileges and shipment delays","Administrative monetary penalties under the AMPS regime","Interest on late duty and GST payments"}', '[{"date": "2026-08-25", "label": "Monthly statement payment due", "recurrence": "annual", "description": "Payment is generally due on the statement due date each month."}, {"date": "2026-12-01", "label": "Financial security renewal", "recurrence": "annual", "description": "Bond amounts should be reviewed against import volume annually."}]', 'CBSA — CARM', 'https://www.cbsa-asfc.gc.ca/services/carm-gcra/menu-eng.html', true, '{ca-consumer-product-safety-act,ca-packaging-labelling-bilingual}'),
+	('us-ca-prop-65', 'Proposition 65 chemical exposure warnings', 'US', 'US-CA', 'STATE', 'California Office of Environmental Health Hazard Assessment (OEHHA)', '{cross_border_ecommerce,imported_consumer_products,textile_apparel_import,kitchen_robotics_machinery}', '{product_safety,product_standards}', 'IN_FORCE', 'HIGH', '1986-11-04 00:00:00', '1988-02-27 00:00:00', '2026-01-08 00:00:00', 'If a product sold into California can expose someone to a chemical on California''s listed-chemicals list, the business must give a clear warning before the exposure happens. For online sales the warning must also appear before purchase, not only on the box that arrives later.', 'Proposition 65 requires a ''clear and reasonable warning'' for exposures to listed carcinogens or reproductive toxicants above safe-harbour levels. Safe-harbour warning content and methods are specified by regulation, including a warning symbol, the word WARNING, at least one named chemical and the OEHHA website. Internet purchases require the warning to be displayed on the product page or during the checkout process. Enforcement is largely driven by private plaintiffs sending 60-day notices.', '{"Any business with 10 or more employees selling products into California","Online sellers shipping to California addresses","Importers of plastics, coatings, vinyl, metal fittings and electronics"}', '[{"title": "Assess exposure", "detail": "Identify whether listed chemicals are present and whether exposure exceeds safe-harbour levels."}, {"title": "Provide a compliant warning", "detail": "Use the safe-harbour format including the symbol, WARNING, a named chemical and www.P65Warnings.ca.gov."}, {"title": "Warn before purchase online", "detail": "Display the warning on the product detail page or during checkout for California shipments."}, {"title": "Pass warnings down the chain", "detail": "Suppliers must notify downstream businesses so retailers can display warnings."}]', '{"Civil penalties of up to 2,500 US dollars per violation per day","Private-plaintiff 60-day notices and settlement costs","Marketplace listing suspension pending compliance"}', '[{"date": "REL:+60", "label": "Respond to a 60-day notice", "recurrence": "one_time", "description": "Where a notice of violation is received, response windows are short."}, {"date": "2026-10-01", "label": "Annual chemical list review", "recurrence": "annual", "description": "OEHHA updates the listed-chemicals list throughout the year."}]', 'California OEHHA — Proposition 65', 'https://oehha.ca.gov/proposition-65', true, '{us-cpsc-general-certificate,us-ca-sales-tax-nexus}'),
+	('us-local-health-plan-review', 'Health department plan review and equipment approval for food establishments', 'US', 'US-TX-HAR', 'COUNTY', 'Local environmental health departments', '{kitchen_robotics_machinery,food_service_technology}', '{food_sanitation,permits_licenses,reporting}', 'IN_FORCE', 'HIGH', '2015-01-01 00:00:00', '2015-01-01 00:00:00', '2026-04-22 00:00:00', 'Before new food equipment is installed in a permitted kitchen, the local health department usually reviews the plans. They check that equipment is certified for sanitation, that there is enough clearance to clean around and under it, and that plumbing and ventilation are correct. Approval is needed before the equipment can be used.', 'Plan review is a local process that varies by jurisdiction but consistently examines equipment certification marks, finish schedules, clearance and mounting details, indirect drainage, backflow prevention and ventilation. Automated equipment adds questions about cleaning access to enclosed mechanisms and how cleaning frequency is verified. Post-installation inspection precedes operational approval.', '{"Equipment suppliers selling into permitted food establishments","Operators remodelling or adding equipment","Robotics vendors deploying into commercial kitchens"}', '[{"title": "Submit equipment specifications", "detail": "Provide cut sheets showing sanitation certification marks and materials."}, {"title": "Show clearances and mounting", "detail": "Demonstrate cleanable clearance or sealed installation on plans."}, {"title": "Address plumbing and ventilation", "detail": "Detail indirect drains, backflow prevention and hood requirements."}, {"title": "Pass pre-operational inspection", "detail": "Obtain sign-off before equipment enters service."}]', '{"Installation rejected and equipment removed at supplier cost","Delayed opening for the operator","Reputational damage with channel partners"}', '[{"date": "2026-09-22", "label": "Plan review submission for Q4 installs", "recurrence": "quarterly", "description": "Submit ahead of scheduled installations to avoid slippage."}, {"date": "2026-11-18", "label": "Annual equipment inspection report", "recurrence": "annual", "description": "Provide inspection and maintenance records where required."}]', 'Harris County Public Health — Food Establishment Plan Review', 'https://publichealth.harriscountytx.gov/Services-Programs/Services/Food-Safety', true, '{us-fda-food-code-equipment,us-nsf-equipment-certification}'),
+	('us-ca-cpra-privacy', 'California Consumer Privacy Act as amended by the CPRA', 'US', 'US-CA', 'STATE', 'California Privacy Protection Agency (CPPA)', '{telecommunications,cross_border_ecommerce,education_tutoring,general_small_business}', '{privacy,reporting}', 'IN_FORCE', 'HIGH', '2020-11-03 00:00:00', '2023-01-01 00:00:00', '2026-06-19 00:00:00', 'Businesses over certain size thresholds that handle Californians'' personal information must publish a privacy notice, honour requests to know, delete and correct data, offer opt-outs from sale or sharing, honour the Global Privacy Control browser signal, and put required terms into contracts with service providers.', 'The CCPA applies to for-profit businesses meeting one of three thresholds: annual gross revenue above 25 million dollars, buying or selling the personal information of 100,000 or more consumers or households, or deriving 50 percent or more of revenue from selling or sharing personal information. The CPRA added the category of sensitive personal information with a right to limit its use, data minimisation and retention disclosure duties, and risk assessment and cybersecurity audit obligations for higher-risk processing.', '{"Businesses meeting the CCPA revenue or volume thresholds","Telecom and digital service providers with California users","Companies using advertising technology that constitutes ''sharing''"}', '[{"title": "Publish a compliant privacy policy", "detail": "Include categories collected, purposes, retention periods and consumer rights, updated at least every 12 months."}, {"title": "Provide two request methods", "detail": "Offer at least two designated methods for submitting rights requests."}, {"title": "Honour opt-out signals", "detail": "Process the Global Privacy Control as a valid opt-out of sale and sharing."}, {"title": "Contract with service providers", "detail": "Include the required processing terms in vendor contracts."}, {"title": "Respond within 45 days", "detail": "Fulfil verified consumer requests within 45 days, extendable once by another 45."}]', '{"Administrative fines per violation, higher for violations involving minors","Private right of action with statutory damages after a qualifying breach","CPPA enforcement audits"}', '[{"date": "REL:+45", "label": "Consumer request response window", "recurrence": "ongoing", "description": "45 days from receipt of a verifiable consumer request."}, {"date": "2026-12-31", "label": "Annual privacy policy update", "recurrence": "annual", "description": "The policy must be reviewed and updated at least every 12 months."}]', 'California Privacy Protection Agency', 'https://cppa.ca.gov/', true, '{ca-pipeda-privacy,ca-quebec-law-25,us-fcc-cpni}'),
+	('ca-casl-anti-spam', 'Canada''s Anti-Spam Legislation (CASL)', 'CA', 'CA', 'FEDERAL', 'CRTC / Competition Bureau / Office of the Privacy Commissioner', '{telecommunications,cross_border_ecommerce,education_tutoring,general_small_business}', '{privacy,telecom_regulation,reporting}', 'IN_FORCE', 'MODERATE', '2010-12-15 00:00:00', '2014-07-01 00:00:00', '2025-11-27 00:00:00', 'Commercial electronic messages sent to Canadian recipients need consent, clear sender identification and a working unsubscribe mechanism that stays valid for at least 60 days and is honoured within 10 business days. You must be able to prove consent, which means keeping records of how and when it was obtained.', 'CASL covers email, SMS and other commercial electronic messages. Express consent must be obtained through a clear opt-in that is not pre-checked; implied consent arises in limited circumstances such as an existing business relationship, and expires after defined periods. The statute also regulates installation of computer programs on another person''s device. Penalties reach 10 million Canadian dollars per violation for organisations.', '{"Any business emailing or texting Canadian recipients","E-commerce brands running marketing campaigns","Telecom and software providers pushing product notifications"}', '[{"title": "Obtain and record consent", "detail": "Use unbundled opt-in and retain evidence of when and how consent was given."}, {"title": "Identify the sender", "detail": "Include the sender''s name, mailing address and a contact method valid for 60 days."}, {"title": "Provide unsubscribe", "detail": "Include a mechanism honoured within 10 business days and functional for at least 60 days."}, {"title": "Track implied consent expiry", "detail": "Monitor when implied consent based on a business relationship lapses."}]', '{"Administrative monetary penalties up to 10 million dollars for organisations","Director and officer liability","Undertakings with published compliance terms"}', '[{"date": "REL:+10", "label": "Unsubscribe processing", "recurrence": "ongoing", "description": "10 business days from the unsubscribe request."}, {"date": "2026-09-26", "label": "Consent register audit", "recurrence": "annual", "description": "Review consent evidence and expiring implied consents."}]', 'Government of Canada — CASL', 'https://ised-isde.canada.ca/site/canada-anti-spam-legislation/en', true, '{ca-pipeda-privacy,ca-crtc-tsp-registration}'),
+	('us-state-llc-annual-report', 'State entity registration, registered agent and annual report', 'US', 'US-CA', 'STATE', 'California Secretary of State / Franchise Tax Board', '{general_small_business,cross_border_ecommerce,education_tutoring,food_service_technology,kitchen_robotics_machinery}', '{business_registration,reporting,taxation}', 'IN_FORCE', 'MODERATE', '1994-01-01 00:00:00', '1994-09-30 00:00:00', '2026-01-19 00:00:00', 'An LLC or corporation must keep its registration current in every state where it does business. In California this means filing a Statement of Information and paying the annual franchise tax. Doing business in another state usually requires registering there as a foreign entity as well.', 'California LLCs file an initial Statement of Information within 90 days of registration and then biennially; corporations file annually. The 800 dollar minimum franchise tax applies to LLCs and corporations doing business in the state, with an additional LLC fee tiered on California-source income. Operating in another state without foreign qualification can bar the entity from bringing suit there and expose it to back fees and penalties.', '{"LLCs and corporations registered in California","Out-of-state entities doing business in California","Businesses expanding operations into new states"}', '[{"title": "Maintain a registered agent", "detail": "Keep a current agent for service of process on file."}, {"title": "File the Statement of Information", "detail": "File on the required cycle for the entity type."}, {"title": "Pay the annual franchise tax", "detail": "The minimum franchise tax is due regardless of profitability."}, {"title": "Foreign-qualify where required", "detail": "Register in each additional state where the entity is doing business."}]', '{"Suspension or forfeiture of entity status","Loss of the right to sue or defend in state courts","Penalties for late Statement of Information filings"}', '[{"date": "2026-09-30", "label": "Statement of Information filing", "recurrence": "annual", "description": "Due in the filing period based on the registration anniversary month."}, {"date": "2027-04-15", "label": "Annual franchise tax payment", "recurrence": "annual", "description": "Minimum franchise tax due for the taxable year."}]', 'California Secretary of State — Business Programs', 'https://www.sos.ca.gov/business-programs', true, '{us-ca-sales-tax-nexus,us-federal-ein-annual-filings}'),
+	('ca-gst-hst-registration', 'GST/HST registration and remittance', 'CA', 'CA', 'FEDERAL', 'Canada Revenue Agency (CRA)', '{general_small_business,cross_border_ecommerce,textile_apparel_import,telecommunications,education_tutoring}', '{taxation,business_registration,reporting}', 'IN_FORCE', 'HIGH', '1990-12-17 00:00:00', '1991-01-01 00:00:00', '2026-04-25 00:00:00', 'A business must register for GST/HST once worldwide taxable revenues exceed 30,000 Canadian dollars in a single quarter or over four consecutive quarters. Non-resident businesses selling digital products or goods to Canadian consumers may also have to register under the simplified regime.', 'Registration is mandatory above the small supplier threshold, and voluntary below it, which many importers choose in order to recover input tax credits on GST paid at the border. Filing frequency is set by annual taxable supplies: annual, quarterly or monthly. Non-resident vendors and distribution platform operators are covered by the simplified GST/HST regime for cross-border digital products and services, and by separate rules for goods fulfilled from Canadian warehouses.', '{"Businesses selling goods or services in Canada","Non-resident e-commerce sellers shipping into Canada","Importers seeking to recover GST paid at the border"}', '[{"title": "Monitor the 30,000 dollar threshold", "detail": "Test both a single-quarter and a rolling four-quarter basis."}, {"title": "Register for a GST/HST account", "detail": "Obtain a Business Number with an RT program account."}, {"title": "Charge the correct rate", "detail": "Apply GST or the applicable HST rate based on the place of supply."}, {"title": "File and remit on schedule", "detail": "File returns and remit net tax by the assigned filing frequency."}]', '{"Assessment of tax that should have been collected","Failure-to-file penalties plus interest","Loss of input tax credits for unregistered periods"}', '[{"date": "2026-10-31", "label": "Quarterly GST/HST return", "recurrence": "quarterly", "description": "Return and payment due one month after the reporting period ends."}, {"date": "2026-09-05", "label": "Registration threshold review", "recurrence": "quarterly", "description": "Confirm whether the small supplier threshold has been exceeded."}]', 'CRA — GST/HST for businesses', 'https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses.html', true, '{ca-cbsa-carm-import,us-ca-sales-tax-nexus}');
+
+
+--
+-- Data for Name: ActionPlan; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+INSERT INTO "public"."ActionPlan" ("id", "businessId", "title", "description", "source", "policyId", "conversationId", "jurisdictionCode", "category", "createdAt", "updatedAt") VALUES
+	('cms63c09q001lazijuptkqthg', 'cms63c09f0015azijz2o7q5l7', 'Get import compliance under control', 'Everything needed so containers clear customs without holds and products can be legally sold in the United States.', 'POLICY', 'us-cbp-importer-of-record', NULL, 'US', 'imports', '2026-07-29 12:58:31.646', '2026-07-29 12:58:31.646'),
+	('cms63c0ab0020azij14kwd1uu', 'cms63c09f0015azijz2o7q5l7', 'Prepare for the Canadian launch', 'Steps that must be complete before the first shipment reaches the Ontario fulfilment partner.', 'POLICY', 'ca-cbsa-carm-import', NULL, 'CA', 'imports', '2026-07-29 12:58:31.667', '2026-07-29 12:58:31.667'),
+	('cms63c0am002aazijkz9dnyeu', 'cms63c09f0015azijz2o7q5l7', 'Sales tax registration clean-up', 'Register where economic nexus has been triggered and close the gaps in collection.', 'POLICY', 'us-ca-sales-tax-nexus', NULL, NULL, 'tax', '2026-07-29 12:58:31.678', '2026-07-29 12:58:31.678'),
+	('cms63c0c60033azijhvibkkch', 'cms63c0c1002nazijksot7xc6', 'Fix labelling across the winter line', 'Bring fibre content, care and origin disclosures into compliance on garments and on the website before the season starts.', 'POLICY', 'us-ftc-textile-labeling', NULL, 'US', 'labeling', '2026-07-29 12:58:31.734', '2026-07-29 12:58:31.734'),
+	('cms63c0cn003gazij3oafvqc3', 'cms63c0c1002nazijksot7xc6', 'Flammability testing for raised-surface fabrics', 'Fleece and brushed fabrics usually cannot rely on the standard exemptions. Testing must be complete before the season''s first shipment.', 'POLICY', 'us-cpsc-flammability-1610', NULL, 'US', 'safety', '2026-07-29 12:58:31.751', '2026-07-29 12:58:31.751'),
+	('cms63c0dt004aazijpd7v2apt', 'cms63c0do003yazij21101fss', 'Confirm the licensing position', 'Establish, in writing, which approvals the centre needs and which exemptions it relies on.', 'POLICY', 'us-ca-bppe-tutoring-exemption', NULL, 'US-CA', 'licensing', '2026-07-29 12:58:31.793', '2026-07-29 12:58:31.793'),
+	('cms63c0e1004kazij4zpaic9v', 'cms63c0do003yazij21101fss', 'Staff screening and safety compliance', 'Everything required before an instructor has contact with students.', 'POLICY', 'us-ca-child-safety-screening', NULL, 'US-CA', 'employment', '2026-07-29 12:58:31.801', '2026-07-29 12:58:31.801'),
+	('cms63c0eb004tazijlub1ap4l', 'cms63c0do003yazij21101fss', 'Facility permits', 'Keep the space legally usable for instruction.', 'POLICY', 'us-local-occupancy-fire-permit', NULL, 'US-CA-LAC', 'licensing', '2026-07-29 12:58:31.811', '2026-07-29 12:58:31.811'),
+	('cms63c0f0005jazijr1ndkrz0', 'cms63c0eu0051azijotk9pjyb', 'Maintain equipment certifications', 'Keep the NSF and NRTL listings active so equipment continues to pass plan review and installation inspections.', 'POLICY', 'us-nsf-equipment-certification', NULL, 'US', 'product', '2026-07-29 12:58:31.836', '2026-07-29 12:58:31.836'),
+	('cms63c0ff005yazijvtd6ubhe', 'cms63c0eu0051azijotk9pjyb', 'Machine safety documentation', 'Everything an installer or inspector will ask for at a customer site.', 'POLICY', 'us-osha-machine-guarding', NULL, NULL, 'safety', '2026-07-29 12:58:31.851', '2026-07-29 12:58:31.851'),
+	('cms63c0fq0067azijrejtq90d', 'cms63c0eu0051azijotk9pjyb', 'British Columbia market entry', 'Certification and safety steps required before the first Canadian installation.', 'POLICY', 'ca-cfia-food-contact-machinery', NULL, 'CA-BC', 'product', '2026-07-29 12:58:31.862', '2026-07-29 12:58:31.862'),
+	('cms63c0gx0070azijz93v97fb', 'cms63c0gq006iazij7snqnv94', 'Privacy programme alignment across jurisdictions', 'Reconcile PIPEDA, Quebec Law 25 and California requirements into one operating model ahead of the US launch.', 'POLICY', 'ca-pipeda-privacy', NULL, 'CA', 'privacy', '2026-07-29 12:58:31.905', '2026-07-29 12:58:31.905'),
+	('cms63c0hk007gazijd9e06d8q', 'cms63c0gq006iazij7snqnv94', 'Telecom regulatory filings', 'Keep CRTC obligations current and prepare for US filing obligations.', 'POLICY', 'ca-crtc-tsp-registration', NULL, 'CA', 'reporting', '2026-07-29 12:58:31.928', '2026-07-29 12:58:31.928'),
+	('cms63c0hs007pazijdrp33mdg', 'cms63c0gq006iazij7snqnv94', 'Marketing consent compliance', 'Keep CASL consent evidence defensible as the customer base grows.', 'POLICY', 'ca-casl-anti-spam', NULL, NULL, 'privacy', '2026-07-29 12:58:31.936', '2026-07-29 12:58:31.936');
+
+
+--
+-- Data for Name: BusinessJurisdiction; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+INSERT INTO "public"."BusinessJurisdiction" ("id", "businessId", "jurisdictionCode", "role") VALUES
+	('cms5wcfa5002b86ijf1gzp6la', 'cms5wcfa0002986ijpaho4mko', 'US', 'OPERATING'),
+	('cms5wcfa5002c86ijefnroa58', 'cms5wcfa0002986ijpaho4mko', 'US-CT', 'OPERATING'),
+	('cms5wcfa5002d86ijhp75fxnr', 'cms5wcfa0002986ijpaho4mko', 'CA-ON', 'TARGET_EXPANSION'),
+	('cms5wcfa5002e86ijzu759en2', 'cms5wcfa0002986ijpaho4mko', 'CA', 'TARGET_EXPANSION'),
+	('cms63c09i0017azijmmi1a2f0', 'cms63c09f0015azijz2o7q5l7', 'US', 'OPERATING'),
+	('cms63c09i0018azijmu0r2y2c', 'cms63c09f0015azijz2o7q5l7', 'US-CA', 'OPERATING'),
+	('cms63c09i0019azij3f8nmfv7', 'cms63c09f0015azijz2o7q5l7', 'US-NY', 'OPERATING'),
+	('cms63c09i001aazijntb08w8r', 'cms63c09f0015azijz2o7q5l7', 'US-TX', 'OPERATING'),
+	('cms63c09i001bazijjjaxfj6h', 'cms63c09f0015azijz2o7q5l7', 'CA', 'TARGET_EXPANSION'),
+	('cms63c09i001cazijf01xhbwu', 'cms63c09f0015azijz2o7q5l7', 'CA-ON', 'TARGET_EXPANSION'),
+	('cms63c0c2002pazijz2xi79ou', 'cms63c0c1002nazijksot7xc6', 'US', 'OPERATING'),
+	('cms63c0c2002qazijgvlrm2so', 'cms63c0c1002nazijksot7xc6', 'US-NY', 'OPERATING'),
+	('cms63c0c2002razij8kt24r61', 'cms63c0c1002nazijksot7xc6', 'US-VT', 'OPERATING'),
+	('cms63c0c2002sazijzbjg3fxa', 'cms63c0c1002nazijksot7xc6', 'US-CO', 'OPERATING'),
+	('cms63c0c2002tazijiamrquho', 'cms63c0c1002nazijksot7xc6', 'CA', 'TARGET_EXPANSION'),
+	('cms63c0c2002uazij91bcax81', 'cms63c0c1002nazijksot7xc6', 'CA-QC', 'TARGET_EXPANSION'),
+	('cms63c0dp0040azij47euumlx', 'cms63c0do003yazij21101fss', 'US', 'OPERATING'),
+	('cms63c0dp0041azijkxfkdewg', 'cms63c0do003yazij21101fss', 'US-CA', 'OPERATING'),
+	('cms63c0dp0042azijh324tbw9', 'cms63c0do003yazij21101fss', 'US-CA-LAC', 'OPERATING'),
+	('cms63c0dp0043azij6lrpunxc', 'cms63c0do003yazij21101fss', 'US-NY', 'TARGET_EXPANSION'),
+	('cms63c0ev0053azij414od11b', 'cms63c0eu0051azijotk9pjyb', 'US', 'OPERATING'),
+	('cms63c0ev0054azijuma31tme', 'cms63c0eu0051azijotk9pjyb', 'US-TX', 'OPERATING'),
+	('cms63c0ev0055azijeq7ckesh', 'cms63c0eu0051azijotk9pjyb', 'US-TX-HAR', 'OPERATING'),
+	('cms63c0ev0056azijshsplsz8', 'cms63c0eu0051azijotk9pjyb', 'US-CA', 'OPERATING'),
+	('cms63c0ev0057azijepy9elfl', 'cms63c0eu0051azijotk9pjyb', 'US-IL', 'OPERATING'),
+	('cms63c0ev0058azijp7kg04a7', 'cms63c0eu0051azijotk9pjyb', 'CA', 'TARGET_EXPANSION'),
+	('cms63c0ev0059aziji2iiqfwy', 'cms63c0eu0051azijotk9pjyb', 'CA-BC', 'TARGET_EXPANSION'),
+	('cms63c0gr006kazijqcclickl', 'cms63c0gq006iazij7snqnv94', 'CA', 'OPERATING'),
+	('cms63c0gr006lazijnfm6483n', 'cms63c0gq006iazij7snqnv94', 'CA-ON', 'OPERATING'),
+	('cms63c0gr006mazijemoomkbj', 'cms63c0gq006iazij7snqnv94', 'CA-QC', 'OPERATING'),
+	('cms63c0gr006nazijrdzqlmu8', 'cms63c0gq006iazij7snqnv94', 'CA-BC', 'OPERATING'),
+	('cms63c0gr006oazij2lzlm2f9', 'cms63c0gq006iazij7snqnv94', 'US', 'TARGET_EXPANSION'),
+	('cms63c0gr006pazij0m6vm1lb', 'cms63c0gq006iazij7snqnv94', 'US-CA', 'TARGET_EXPANSION');
+
+
+--
+-- Data for Name: BusinessProfile; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+INSERT INTO "public"."BusinessProfile" ("id", "businessId", "industryKey", "industryLabel", "subIndustries", "productsSold", "servicesProvided", "importsProducts", "importCountries", "employsStaff", "handlesCustomerData", "physicalLocations", "sellsCrossBorder", "requiresLicenses", "regulatedIndustry", "plansExpansion", "targetCountry", "targetRegion", "targetCity", "expansionActivity", "expansionDate", "compliancePriorities", "trackingMethod", "hasComplianceStaff", "usesSpreadsheets", "usesExternalTool", "reviewFrequency", "topConcern", "updatedAt") VALUES
+	('cms5wcfa1002a86ijpsr925pr', 'cms5wcfa0002986ijpaho4mko', 'imported_consumer_products', 'Imported consumer products', '{"Electro cars"}', '{}', '{}', true, '{CN,DE,JP}', false, true, false, true, true, false, true, 'CA', 'CA-ON', 'Toronto', 'Sell electro cars', '2028-07-31 00:00:00', '{business_registration,permits_licenses,employment,taxation,privacy,certification_renewals,product_standards,imports_customs,reporting}', 'nothing_formal', false, true, false, 'rarely', 'Dont know what to do in first place', '2026-07-29 09:42:53.784'),
+	('cms63c09g0016azijb4byt814', 'cms63c09f0015azijz2o7q5l7', 'cross_border_ecommerce', 'Cross-border e-commerce', '{"Recovery and wellness equipment","Direct-to-consumer retail"}', '{"Ice bath tubs","Chiller units","Insulated covers","Water treatment accessories"}', '{"Delivery and installation coordination","Extended warranty support"}', true, '{CN,VN}', true, true, true, true, false, false, true, 'CA', 'CA-ON', 'Toronto', 'Selling online to Canadian consumers with a third-party fulfilment partner in Ontario', '2026-11-24 07:00:00', '{imports_customs,product_safety,product_standards,taxation,business_registration}', 'spreadsheets', false, true, false, 'rarely', 'We do not know what we are supposed to file when our containers arrive, and we are about to start shipping to Canada.', '2026-07-29 12:58:31.635'),
+	('cms63c0c2002oazij0drgplkr', 'cms63c0c1002nazijksot7xc6', 'textile_apparel_import', 'Textile & apparel import', '{"Winter sportswear","Technical outerwear"}', '{"Ski jackets","Snowboard pants","Fleece base layers","Gloves and accessories"}', '{"In-store fitting","Seasonal wholesale to regional shops"}', true, '{IT,CN,TR}', true, true, true, true, false, false, true, 'CA', 'CA-QC', 'Montreal', 'Wholesale accounts with Quebec ski shops and direct online sales', '2027-01-01 07:00:00', '{textile_labeling,product_safety,imports_customs,certification_renewals,taxation}', 'spreadsheets', false, true, false, 'annually', 'Our fleece styles keep getting flagged by a wholesale buyer for flammability documentation we do not have.', '2026-07-29 12:58:31.729'),
+	('cms63c0do003zazijufnizkc4', 'cms63c0do003yazij21101fss', 'education_tutoring', 'Education & tutoring', '{"Supplemental education","After-school programmes"}', '{"Workbooks and learning materials"}', '{"Maths instruction","Reading instruction","Progress assessments"}', false, '{}', true, true, true, false, true, true, true, 'US', 'US-NY', 'Brooklyn', 'Opening a second learning centre location', '2027-03-10 07:00:00', '{education_licensing,permits_licenses,business_registration,employment,taxation}', 'nothing_formal', false, false, false, 'rarely', 'I am not sure which licences I actually need, and I keep hearing different answers about whether tutoring requires state approval.', '2026-07-29 12:58:31.788'),
+	('cms63c0ev0052azijc9faam41', 'cms63c0eu0051azijotk9pjyb', 'kitchen_robotics_machinery', 'Kitchen robotics & commercial machinery', '{"Commercial food equipment","Industrial automation"}', '{"Automated fry stations","Robotic beverage dispensers","Cleaning-in-place modules"}', '{Installation,"Preventive maintenance contracts","Operator training"}', true, '{DE,JP}', true, true, true, true, true, true, true, 'CA', 'CA-BC', 'Vancouver', 'Selling and installing equipment for a restaurant group in British Columbia', '2026-10-31 07:00:00', '{food_sanitation,machinery_safety,product_standards,certification_renewals,reporting}', 'spreadsheets', false, true, true, 'quarterly', 'Every new customer''s health department asks slightly different questions about our equipment, and our certifications are coming up for audit.', '2026-07-29 12:58:31.83'),
+	('cms63c0gr006jazijm2bxbx42', 'cms63c0gq006iazij7snqnv94', 'telecommunications', 'Telecommunications', '{"Digital telco platform","MVNO enablement"}', '{"Subscriber management platform","Digital BSS modules"}', '{"Managed digital telco operations","Customer data platform","Billing operations"}', false, '{}', true, true, true, true, true, true, true, 'US', 'US-CA', 'San Francisco', 'Serving US carrier customers with subscriber data processed in US regions', '2026-09-29 07:00:00', '{telecom_regulation,privacy,reporting,certification_renewals,employment}', 'internal_team', true, true, true, 'monthly', 'We need a single view of privacy and telecom obligations across Canada, Quebec and the US as we take on American carrier customers.', '2026-07-29 12:58:31.898');
+
+
+--
+-- Data for Name: Task; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+INSERT INTO "public"."Task" ("id", "businessId", "planId", "policyId", "title", "description", "category", "jurisdictionCode", "priority", "status", "dueDate", "notes", "completedAt", "createdAt", "updatedAt") VALUES
+	('cms63c09u001mazijzj0prwgg', 'cms63c09f0015azijz2o7q5l7', 'cms63c09q001lazijuptkqthg', 'us-cbp-importer-of-record', 'Confirm HTS classification for tub and chiller SKUs', 'Classification drives duty rate. Get a written opinion from the customs broker covering both the tub and the separately shipped chiller unit.', 'imports', 'US', 'HIGH', 'IN_PROGRESS', '2026-08-07 07:00:00', 'Broker flagged that the chiller may classify separately from the tub.', NULL, '2026-07-29 12:58:31.65', '2026-07-29 12:58:31.65'),
+	('cms63c0a2001razijozalnk3k', 'cms63c09f0015azijz2o7q5l7', 'cms63c09q001lazijuptkqthg', 'us-cbp-importer-of-record', 'Increase continuous customs bond amount', 'Projected duty volume for the next 12 months exceeds the current bond. Insufficient bond amounts cause release delays.', 'imports', NULL, 'MEDIUM', 'NOT_STARTED', '2026-08-22 07:00:00', '', NULL, '2026-07-29 12:58:31.658', '2026-07-29 12:58:31.658'),
+	('cms63c0a7001vazijk0602v3x', 'cms63c09f0015azijz2o7q5l7', 'cms63c09q001lazijuptkqthg', 'us-cpsc-general-certificate', 'Issue General Certificates of Conformity for the tub line', 'Products subject to a CPSC rule need a written certificate based on a reasonable testing programme before import or distribution.', 'product', NULL, 'URGENT', 'NOT_STARTED', '2026-07-25 07:00:00', 'Overdue — the last shipment was released without a certificate on file.', NULL, '2026-07-29 12:58:31.663', '2026-07-29 12:58:31.663'),
+	('cms63c0ae0021azijw716icwv', 'cms63c09f0015azijz2o7q5l7', 'cms63c0ab0020azij14kwd1uu', 'ca-cbsa-carm-import', 'Register in the CARM Client Portal', 'Commercial importers into Canada need their own portal account, delegated broker access and their own financial security.', 'imports', 'CA', 'HIGH', 'NOT_STARTED', '2026-08-29 07:00:00', '', NULL, '2026-07-29 12:58:31.67', '2026-07-29 12:58:31.67'),
+	('cms63c0aj0026azijxtfy7mqz', 'cms63c09f0015azijz2o7q5l7', 'cms63c0ab0020azij14kwd1uu', 'ca-packaging-labelling-bilingual', 'Produce bilingual packaging artwork', 'Product identity and net quantity must appear in both English and French with metric units before goods ship to Canada.', 'labeling', 'CA', 'MEDIUM', 'NOT_STARTED', '2026-09-12 07:00:00', '', NULL, '2026-07-29 12:58:31.675', '2026-07-29 12:58:31.675'),
+	('cms63c0as002bazij76jp2lej', 'cms63c09f0015azijz2o7q5l7', 'cms63c0am002aazijkz9dnyeu', 'us-ca-sales-tax-nexus', 'Review sales-by-state data against nexus thresholds', 'Direct website sales are not covered by marketplace collection. Determine which states have been triggered.', 'tax', NULL, 'HIGH', 'IN_PROGRESS', '2026-08-14 07:00:00', '', NULL, '2026-07-29 12:58:31.684', '2026-07-29 12:58:31.684'),
+	('cms63c0cb0034azijt2ldtd6g', 'cms63c0c1002nazijksot7xc6', 'cms63c0c60033azijhvibkkch', 'us-ftc-textile-labeling', 'Add fibre content and origin to all online listings', 'Updated FTC guidance confirms e-commerce descriptions must carry the same disclosures as the sewn-in label.', 'labeling', NULL, 'URGENT', 'IN_PROGRESS', '2026-08-03 07:00:00', '62 of 148 SKUs updated so far.', NULL, '2026-07-29 12:58:31.739', '2026-07-29 12:58:31.739'),
+	('cms63c0ch0039azijsvwhk8ll', 'cms63c0c1002nazijksot7xc6', 'cms63c0c60033azijhvibkkch', 'us-ftc-textile-labeling', 'Verify RN number is current', 'The label must show either the full company name or a registered identification number issued by the FTC.', 'labeling', NULL, 'LOW', 'COMPLETED', '2026-07-17 07:00:00', '', '2026-07-26 07:00:00', '2026-07-29 12:58:31.745', '2026-07-29 12:58:31.745'),
+	('cms63c0ck003cazijek52s2eq', 'cms63c0c1002nazijksot7xc6', 'cms63c0c60033azijhvibkkch', 'us-ftc-care-labeling', 'Substantiate care instructions for new styles', 'A reasonable basis is needed for every care label before the garment is sold. Collect test data or documented supplier evidence.', 'labeling', NULL, 'MEDIUM', 'NOT_STARTED', '2026-09-05 07:00:00', '', NULL, '2026-07-29 12:58:31.748', '2026-07-29 12:58:31.748'),
+	('cms63c0cq003hazijl5w4y0dy', 'cms63c0c1002nazijksot7xc6', 'cms63c0cn003gazij3oafvqc3', 'us-cpsc-flammability-1610', 'Identify every raised-surface fabric in the line', 'Napped, brushed and fleece constructions need review against the 16 CFR 1610 exemption criteria.', 'safety', NULL, 'URGENT', 'IN_PROGRESS', '2026-07-31 07:00:00', '', NULL, '2026-07-29 12:58:31.754', '2026-07-29 12:58:31.754'),
+	('cms63c0cv003lazijxl7nnjqb', 'cms63c0c1002nazijksot7xc6', 'cms63c0cn003gazij3oafvqc3', 'us-cpsc-flammability-1610', 'Book laboratory flammability testing', 'Non-exempt fabrics need a test report establishing the flammability class before certification.', 'safety', NULL, 'HIGH', 'NOT_STARTED', '2026-08-19 07:00:00', '', NULL, '2026-07-29 12:58:31.759', '2026-07-29 12:58:31.759'),
+	('cms63c0cy003pazij9g7ljxcw', 'cms63c0c1002nazijksot7xc6', 'cms63c0cn003gazij3oafvqc3', 'us-cpsc-general-certificate', 'Issue General Certificates of Conformity for the season', 'Certificates must list 16 CFR 1610 and every other applicable rule, and be available to CBP at entry.', 'product', NULL, 'HIGH', 'NOT_STARTED', '2026-09-22 07:00:00', '', NULL, '2026-07-29 12:58:31.762', '2026-07-29 12:58:31.762'),
+	('cms63c0dv004baziju01zkio5', 'cms63c0do003yazij21101fss', 'cms63c0dt004aazijpd7v2apt', 'us-ca-bppe-tutoring-exemption', 'Document the BPPE exemption analysis', 'Record which statutory exemption applies and the programme facts that support it, so the position can be defended and revisited.', 'licensing', 'US-CA', 'HIGH', 'IN_PROGRESS', '2026-08-11 07:00:00', '', NULL, '2026-07-29 12:58:31.795', '2026-07-29 12:58:31.795'),
+	('cms63c0dz004gazijbwuo2740', 'cms63c0do003yazij21101fss', 'cms63c0dt004aazijpd7v2apt', 'us-ca-la-business-tax-certificate', 'Renew the Los Angeles Business Tax Registration Certificate', 'The renewal must be filed by 28 February. A late filing forfeits the small business exemption for the year.', 'registration', 'US-CA-LAC', 'MEDIUM', 'NOT_STARTED', '2027-03-01 07:00:00', '', NULL, '2026-07-29 12:58:31.799', '2026-07-29 12:58:31.799'),
+	('cms63c0e4004lazij9vj8zyle', 'cms63c0do003yazij21101fss', 'cms63c0e1004kazij4zpaic9v', 'us-ca-child-safety-screening', 'Audit Live Scan clearances for all instructors', 'Every instructor with unsupervised student contact needs a fingerprint clearance on file, with subsequent arrest notification enrolled.', 'employment', NULL, 'URGENT', 'NOT_STARTED', '2026-07-27 07:00:00', 'Two instructors hired in June have no clearance on file.', NULL, '2026-07-29 12:58:31.804', '2026-07-29 12:58:31.804'),
+	('cms63c0e8004qazijdizpeebc', 'cms63c0do003yazij21101fss', 'cms63c0e1004kazij4zpaic9v', 'us-ca-child-safety-screening', 'Complete mandated reporter training', 'Designated staff must be trained, with signed acknowledgements retained.', 'employment', NULL, 'MEDIUM', 'NOT_STARTED', '2026-09-08 07:00:00', '', NULL, '2026-07-29 12:58:31.808', '2026-07-29 12:58:31.808'),
+	('cms63c0ed004uazijw053vdbm', 'cms63c0do003yazij21101fss', 'cms63c0eb004tazijlub1ap4l', 'us-local-occupancy-fire-permit', 'Schedule the annual fire inspection', 'Instructional occupancies are inspected annually for exits, extinguishers, emergency lighting and posted occupant load.', 'licensing', NULL, 'MEDIUM', 'NOT_STARTED', '2026-10-21 07:00:00', '', NULL, '2026-07-29 12:58:31.813', '2026-07-29 12:58:31.813'),
+	('cms63c0f4005kazijh7w4axti', 'cms63c0eu0051azijotk9pjyb', 'cms63c0f0005jazijr1ndkrz0', 'us-nsf-equipment-certification', 'Prepare for the semi-annual factory audit', 'Unannounced inspections verify that production still matches the certified construction. Records and retained samples must be ready.', 'product', NULL, 'URGENT', 'IN_PROGRESS', '2026-08-25 07:00:00', 'A component substitution on the dispensing valve has not been reported to the certifier.', NULL, '2026-07-29 12:58:31.84', '2026-07-29 12:58:31.84'),
+	('cms63c0f8005pazijpaho28ny', 'cms63c0eu0051azijotk9pjyb', 'cms63c0f0005jazijr1ndkrz0', 'us-nsf-equipment-certification', 'Report the dispensing valve component change', 'Material and component changes must be notified to the certification body and may require re-evaluation.', 'product', NULL, 'HIGH', 'NOT_STARTED', '2026-08-04 07:00:00', '', NULL, '2026-07-29 12:58:31.844', '2026-07-29 12:58:31.844'),
+	('cms63c0fc005tazijddwqdwx4', 'cms63c0eu0051azijotk9pjyb', 'cms63c0f0005jazijr1ndkrz0', 'us-fda-food-code-equipment', 'Document cleaning access for enclosed mechanisms', 'New Food Code guidance for automated equipment expects documented cleaning access and validated cleaning frequency.', 'safety', NULL, 'HIGH', 'NOT_STARTED', '2026-08-31 07:00:00', '', NULL, '2026-07-29 12:58:31.848', '2026-07-29 12:58:31.848'),
+	('cms63c0fh005zazijlc5xmt1g', 'cms63c0eu0051azijotk9pjyb', 'cms63c0ff005yazijvtd6ubhe', 'us-osha-machine-guarding', 'Refresh the machine safety risk assessment', 'Assess the installed configuration including guarding, interlocks, emergency stop and any collaborative operation.', 'safety', NULL, 'MEDIUM', 'NOT_STARTED', '2026-10-13 07:00:00', '', NULL, '2026-07-29 12:58:31.853', '2026-07-29 12:58:31.853'),
+	('cms63c0fn0063azijskh67xl9', 'cms63c0eu0051azijotk9pjyb', 'cms63c0ff005yazijvtd6ubhe', 'us-osha-machine-guarding', 'Update lockout/tagout procedures shipped with equipment', 'Customers need energy-isolation procedures to meet their own obligations during servicing.', 'safety', NULL, 'MEDIUM', 'BLOCKED', '2026-09-15 07:00:00', 'Blocked — waiting on the electrical schematic revision from engineering.', NULL, '2026-07-29 12:58:31.859', '2026-07-29 12:58:31.859'),
+	('cms63c0fx0068azijeuj2zrsa', 'cms63c0eu0051azijotk9pjyb', 'cms63c0fq0067azijrejtq90d', 'ca-cfia-food-contact-machinery', 'Obtain a Canadian electrical certification mark', 'A US-only UL mark is generally not accepted. Certification through an SCC-accredited body is normally required.', 'product', 'CA', 'HIGH', 'NOT_STARTED', '2026-09-25 07:00:00', '', NULL, '2026-07-29 12:58:31.869', '2026-07-29 12:58:31.869'),
+	('cms63c0h60071azij5ppqjxa4', 'cms63c0gq006iazij7snqnv94', 'cms63c0gx0070azijz93v97fb', 'ca-quebec-law-25', 'Complete privacy impact assessment for US data transfers', 'Quebec requires a documented assessment before personal information is transferred outside the province, covering sensitivity, purposes, safeguards and the destination''s legal regime.', 'privacy', 'CA-QC', 'URGENT', 'IN_PROGRESS', '2026-08-29 07:00:00', '', NULL, '2026-07-29 12:58:31.914', '2026-07-29 12:58:31.914'),
+	('cms63c0hc0077azij8ty91bzg', 'cms63c0gq006iazij7snqnv94', 'cms63c0gx0070azijz93v97fb', 'us-ca-cpra-privacy', 'Map CPRA obligations to the platform', 'Determine which CCPA thresholds are met for the US entity and what rights handling the platform must support.', 'privacy', 'US-CA', 'HIGH', 'NOT_STARTED', '2026-09-11 07:00:00', '', NULL, '2026-07-29 12:58:31.92', '2026-07-29 12:58:31.92'),
+	('cms63c0hh007cazijip0ghc48', 'cms63c0gq006iazij7snqnv94', 'cms63c0gx0070azijz93v97fb', 'ca-pipeda-privacy', 'Refresh the breach response runbook', 'PIPEDA requires notification as soon as feasible where a breach creates a real risk of significant harm, plus a 24-month breach log.', 'privacy', NULL, 'MEDIUM', 'COMPLETED', '2026-07-11 07:00:00', '', '2026-07-26 07:00:00', '2026-07-29 12:58:31.925', '2026-07-29 12:58:31.925'),
+	('cms63c0hn007hazij4fpk4b5a', 'cms63c0gq006iazij7snqnv94', 'cms63c0hk007gazijd9e06d8q', 'ca-crtc-tsp-registration', 'Remap revenue categories for the CRTC data collection', 'The annual filing''s revenue categories were restructured. Internal classifications need to be remapped well before the filing date.', 'reporting', NULL, 'HIGH', 'IN_PROGRESS', '2026-09-30 07:00:00', '', NULL, '2026-07-29 12:58:31.931', '2026-07-29 12:58:31.931'),
+	('cms63c0hq007lazijgb814bo0', 'cms63c0gq006iazij7snqnv94', 'cms63c0hk007gazijd9e06d8q', 'us-fcc-form-499', 'Assess US Form 499 registration requirement', 'Determine whether the US entity''s services constitute interstate telecommunications requiring FCC registration and USF contribution.', 'reporting', 'US', 'HIGH', 'NOT_STARTED', '2026-09-07 07:00:00', '', NULL, '2026-07-29 12:58:31.934', '2026-07-29 12:58:31.934'),
+	('cms63c0hw007qazij7njqlhtx', 'cms63c0gq006iazij7snqnv94', 'cms63c0hs007pazijdrp33mdg', 'ca-casl-anti-spam', 'Audit the consent register', 'Review evidence of express consent and identify implied consents that are about to expire.', 'privacy', NULL, 'LOW', 'NOT_STARTED', '2026-09-27 07:00:00', '', NULL, '2026-07-29 12:58:31.94', '2026-07-29 12:58:31.94');
+
+
+--
+-- Data for Name: ChecklistItem; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+INSERT INTO "public"."ChecklistItem" ("id", "taskId", "label", "done", "position") VALUES
+	('cms63c0cw003mazijybsarf0v', 'cms63c0cv003lazijxl7nnjqb', 'Request quotes from two accredited labs', false, 0),
+	('cms63c0cw003nazij8lsffe7g', 'cms63c0cv003lazijxl7nnjqb', 'Ship fabric samples', false, 1),
+	('cms63c0cw003oazija82egq8j', 'cms63c0cv003lazijxl7nnjqb', 'Receive and file test reports', false, 2),
+	('cms63c0cz003qazij157ewc4u', 'cms63c0cy003pazij9g7ljxcw', 'Collect test reports for all styles', false, 0),
+	('cms63c0cz003razij3kdoailw', 'cms63c0cy003pazij9g7ljxcw', 'Generate certificates per shipment', false, 1),
+	('cms63c0cz003sazij8hxdc4fp', 'cms63c0cy003pazij9g7ljxcw', 'Send certificates to the broker', false, 2),
+	('cms63c0dw004cazijg28bbwwe', 'cms63c0dv004baziju01zkio5', 'List every programme offered and its target age group', true, 0),
+	('cms63c0dw004dazijg15vrbxz', 'cms63c0dv004baziju01zkio5', 'Confirm no diplomas or occupational credentials are awarded', true, 1),
+	('cms63c0dw004eazijnbck56ng', 'cms63c0dv004baziju01zkio5', 'Write the exemption memo', false, 2),
+	('cms63c0dw004fazijje8j27cx', 'cms63c0dv004baziju01zkio5', 'Diarise an annual review', false, 3),
+	('cms63c0dz004hazijcwgtj7q3', 'cms63c0dz004gazijbwuo2740', 'Compile prior-year gross receipts', false, 0),
+	('cms63c0dz004iazijr7mgrurc', 'cms63c0dz004gazijbwuo2740', 'Confirm the correct tax classification', false, 1),
+	('cms63c0dz004jazij1flisqxv', 'cms63c0dz004gazijbwuo2740', 'File the renewal online', false, 2),
+	('cms63c0e4004mazijj1nfngi9', 'cms63c0e4004lazij9vj8zyle', 'List current instructors and start dates', false, 0),
+	('cms63c0e4004nazij483mxy1q', 'cms63c0e4004lazij9vj8zyle', 'Match each to a clearance record', false, 1),
+	('cms63c0e4004oazij72crnjew', 'cms63c0e4004lazij9vj8zyle', 'Schedule Live Scan for anyone missing', false, 2),
+	('cms63c0e4004paziju123mswi', 'cms63c0e4004lazij9vj8zyle', 'Confirm subsequent arrest notification is active', false, 3),
+	('cms63c0e9004razijdu9piz2x', 'cms63c0e8004qazijdizpeebc', 'Book the training session', false, 0),
+	('cms63c0e9004sazijhybzdqps', 'cms63c0e8004qazijdizpeebc', 'Collect signed acknowledgements', false, 1),
+	('cms63c0ee004vazij3p1mgqqm', 'cms63c0ed004uazijw053vdbm', 'Contact the fire prevention bureau', false, 0),
+	('cms63c0ee004wazijdh3ar86w', 'cms63c0ed004uazijw053vdbm', 'Check extinguisher service tags', false, 1),
+	('cms63c0ee004xazijpb78fkej', 'cms63c0ed004uazijw053vdbm', 'Confirm occupant load sign is posted', false, 2),
+	('cms63c0f5005lazijjwglejkf', 'cms63c0f4005kazijh7w4axti', 'Assemble the bill of materials for each listed model', true, 0),
+	('cms63c0f5005maziji4af2bsi', 'cms63c0f4005kazijh7w4axti', 'Confirm no uncommunicated component substitutions', false, 1),
+	('cms63c0f5005nazijqmhc5k0g', 'cms63c0f4005kazijh7w4axti', 'Pull retained samples for each production run', false, 2),
+	('cms63c0f5005oazij91aiog14', 'cms63c0f4005kazijh7w4axti', 'Review the previous audit''s corrective actions', false, 3),
+	('cms63c0f8005qazijjdl0ks89', 'cms63c0f8005pazijpaho28ny', 'Document the old and new valve specifications', false, 0),
+	('cms63c0f8005razijv0b6omzk', 'cms63c0f8005pazijpaho28ny', 'Submit a change notification to the certifier', false, 1),
+	('cms63c0f8005sazijo8mtsyqz', 'cms63c0f8005pazijpaho28ny', 'Confirm whether re-testing is required', false, 2),
+	('cms63c0fc005uazij25ozmkho', 'cms63c0fc005tazijddwqdwx4', 'Map every enclosed drive and dispensing mechanism', false, 0),
+	('cms63c0fc005vazijpuowh2c6', 'cms63c0fc005tazijddwqdwx4', 'Document the disassembly and cleaning procedure', false, 1),
+	('cms63c0fc005wazijrzntnoj6', 'cms63c0fc005tazijddwqdwx4', 'Validate the cleaning frequency', false, 2),
+	('cms63c0fc005xazijejvodceq', 'cms63c0fc005tazijddwqdwx4', 'Add the documentation to the plan review pack', false, 3),
+	('cms63c0fi0060azij4eof6qwc', 'cms63c0fh005zazijlc5xmt1g', 'Review the current guarding design', false, 0),
+	('cms63c0fi0061azijwq25isd2', 'cms63c0fh005zazijlc5xmt1g', 'Verify interlock function on each guard', false, 1),
+	('cms63c0fi0062azijsqgny832', 'cms63c0fh005zazijlc5xmt1g', 'Update the risk assessment document', false, 2),
+	('cms63c0fo0064azij5dt2nzbj', 'cms63c0fn0063azijskh67xl9', 'List all energy sources per model', true, 0),
+	('cms63c0fo0065azijd9j7o86u', 'cms63c0fn0063azijskh67xl9', 'Draft isolation procedures', false, 1),
+	('cms63c0fo0066azijdll7cn6y', 'cms63c0fn0063azijskh67xl9', 'Review with the safety consultant', false, 2),
+	('cms63c0fy0069azijmpg78c76', 'cms63c0fx0068azijeuj2zrsa', 'Confirm which models will ship to Canada', false, 0),
+	('cms63c09w001nazijicttoe84', 'cms63c09u001mazijzj0prwgg', 'Send product specs and photos to broker', true, 0),
+	('cms63c09w001oazij6iat82m2', 'cms63c09u001mazijzj0prwgg', 'Get written classification opinion for tub', true, 1),
+	('cms63c09w001pazijd7w7bmex', 'cms63c09u001mazijzj0prwgg', 'Get written classification opinion for chiller', false, 2),
+	('cms63c09w001qazijhc6uejfz', 'cms63c09u001mazijzj0prwgg', 'Update the product master with HTS codes', false, 3),
+	('cms63c0a3001sazijt5qk38r7', 'cms63c0a2001razijozalnk3k', 'Pull 12-month duty projection', false, 0),
+	('cms63c0a3001tazijvyvd2uc2', 'cms63c0a2001razijozalnk3k', 'Request bond increase quote from surety', false, 1),
+	('cms63c0a3001uazijk7bdzuib', 'cms63c0a2001razijozalnk3k', 'File the rider with CBP', false, 2),
+	('cms63c0a8001wazijflrcve47', 'cms63c0a7001vazijk0602v3x', 'Identify every CPSC rule that applies', false, 0),
+	('cms63c0a8001xazijsqttza03', 'cms63c0a7001vazijk0602v3x', 'Confirm supplier test reports cover those rules', false, 1),
+	('cms63c0a8001yazij28p2hmk1', 'cms63c0a7001vazijk0602v3x', 'Draft the GCC template', false, 2),
+	('cms63c0a8001zazij7lgz32yt', 'cms63c0a7001vazijk0602v3x', 'Share the certificate with the broker for entry', false, 3),
+	('cms63c0af0022azijlgt4db9x', 'cms63c0ae0021azijw716icwv', 'Obtain a Canadian Business Number with an RM account', false, 0),
+	('cms63c0af0023azijxyva7xa5', 'cms63c0ae0021azijw716icwv', 'Create the CARM portal business account', false, 1),
+	('cms63c0af0024azij3reqkhpb', 'cms63c0ae0021azijw716icwv', 'Post financial security', false, 2),
+	('cms63c0af0025azij2jaxdsgb', 'cms63c0ae0021azijw716icwv', 'Delegate authority to the customs broker', false, 3),
+	('cms63c0ak0027azije4jo6fmn', 'cms63c0aj0026azijxtfy7mqz', 'Translate product identity and quantity statements', false, 0),
+	('cms63c0ak0028azijr7qhbxfe', 'cms63c0aj0026azijxtfy7mqz', 'Check minimum type height for net quantity', false, 1),
+	('cms63c0ak0029azijz5g85ls2', 'cms63c0aj0026azijxtfy7mqz', 'Send revised artwork to the factory', false, 2),
+	('cms63c0at002cazijvzq4s70u', 'cms63c0as002bazij76jp2lej', 'Export 24 months of sales by ship-to state', true, 0),
+	('cms63c0at002dazijuwjv6tyn', 'cms63c0as002bazij76jp2lej', 'Split marketplace versus direct revenue', true, 1),
+	('cms63c0at002eazijt9hcnhta', 'cms63c0as002bazij76jp2lej', 'Compare against each state threshold', false, 2),
+	('cms63c0at002fazijbf82mldf', 'cms63c0as002bazij76jp2lej', 'List states requiring registration', false, 3),
+	('cms63c0cc0035azijoe70401v', 'cms63c0cb0034azijt2ldtd6g', 'Export the full product catalogue', true, 0),
+	('cms63c0cc0036azijmyyvsflg', 'cms63c0cb0034azijt2ldtd6g', 'Map fibre content per SKU from supplier packs', true, 1),
+	('cms63c0cc0037azijjfh7iksg', 'cms63c0cb0034azijt2ldtd6g', 'Update website product descriptions', false, 2),
+	('cms63c0cc0038azijcec4q614', 'cms63c0cb0034azijt2ldtd6g', 'Update marketplace listings', false, 3),
+	('cms63c0ch003aazij4j2c7bsf', 'cms63c0ch0039azijsvwhk8ll', 'Look up the RN record', true, 0),
+	('cms63c0ch003bazijtbp3u17s', 'cms63c0ch0039azijsvwhk8ll', 'Confirm the business address on file', true, 1),
+	('cms63c0cl003dazijxvp0j3e0', 'cms63c0ck003cazijek52s2eq', 'List new styles for the season', false, 0),
+	('cms63c0cl003eazijy7dog2ht', 'cms63c0ck003cazijek52s2eq', 'Request wash test data from each supplier', false, 1),
+	('cms63c0cl003fazijtsjn8tuv', 'cms63c0ck003cazijek52s2eq', 'File evidence in the substantiation folder', false, 2),
+	('cms63c0cr003iazijk8oyvvnj', 'cms63c0cq003hazijl5w4y0dy', 'Pull fabric construction data per style', true, 0),
+	('cms63c0cr003jazij6vupckk4', 'cms63c0cq003hazijl5w4y0dy', 'Flag napped and brushed constructions', true, 1),
+	('cms63c0cr003kazij6ddcacfh', 'cms63c0cq003hazijl5w4y0dy', 'Confirm weight and fibre content exemptions', false, 2),
+	('cms63c0fy006aazijfnlhuypt', 'cms63c0fx0068azijeuj2zrsa', 'Request a cUL or CSA quotation', false, 1),
+	('cms63c0fy006bazij53rkl05t', 'cms63c0fx0068azijeuj2zrsa', 'Decide between certification and field evaluation', false, 2),
+	('cms63c0h70072azija2dvug5l', 'cms63c0h60071azij5ppqjxa4', 'Map data elements moving to US regions', true, 0),
+	('cms63c0h70073azijctjcn0kv', 'cms63c0h60071azij5ppqjxa4', 'Classify sensitivity per element', true, 1),
+	('cms63c0h70074azij797o71fu', 'cms63c0h60071azij5ppqjxa4', 'Document safeguards and contractual terms', false, 2),
+	('cms63c0h70075azij296jfadh', 'cms63c0h60071azij5ppqjxa4', 'Assess the destination legal regime', false, 3),
+	('cms63c0h70076azija05179pr', 'cms63c0h60071azij5ppqjxa4', 'Obtain privacy officer sign-off', false, 4),
+	('cms63c0hd0078azij9wl9agao', 'cms63c0hc0077azij8ty91bzg', 'Assess revenue and volume thresholds', false, 0),
+	('cms63c0hd0079azijjvhkace7', 'cms63c0hc0077azij8ty91bzg', 'Identify sale or sharing activities', false, 1),
+	('cms63c0hd007aazijix2jvom1', 'cms63c0hc0077azij8ty91bzg', 'Design rights request handling with a 45-day SLA', false, 2),
+	('cms63c0hd007bazij6a54koxd', 'cms63c0hc0077azij8ty91bzg', 'Add required terms to vendor contracts', false, 3),
+	('cms63c0hi007dazijz6wiwyn5', 'cms63c0hh007cazijip0ghc48', 'Update severity assessment criteria', true, 0),
+	('cms63c0hi007eazijuctlzrn9', 'cms63c0hh007cazijip0ghc48', 'Confirm the breach log retention period', true, 1),
+	('cms63c0hi007fazijha32hw6l', 'cms63c0hh007cazijip0ghc48', 'Run a tabletop exercise', true, 2),
+	('cms63c0hn007iazij7qxia5c3', 'cms63c0hn007hazij4fpk4b5a', 'Obtain the revised category definitions', true, 0),
+	('cms63c0hn007jazijsrd3bd04', 'cms63c0hn007hazij4fpk4b5a', 'Map internal revenue lines to new categories', false, 1),
+	('cms63c0hn007kazijsmgyp65b', 'cms63c0hn007hazij4fpk4b5a', 'Validate with finance', false, 2),
+	('cms63c0hq007mazijal2jdfna', 'cms63c0hq007lazijgb814bo0', 'Classify each service line', false, 0),
+	('cms63c0hq007nazijaofcychc', 'cms63c0hq007lazijgb814bo0', 'Assess de minimis exemption', false, 1),
+	('cms63c0hq007oazij40s8brtj', 'cms63c0hq007lazijgb814bo0', 'Obtain an FCC Registration Number if required', false, 2),
+	('cms63c0hx007razijrhenf00y', 'cms63c0hw007qazij7njqlhtx', 'Export consent records with source and date', false, 0),
+	('cms63c0hx007sazij4a0gijt7', 'cms63c0hw007qazij7njqlhtx', 'Flag implied consents nearing expiry', false, 1),
+	('cms63c0hx007tazij03ymzzk5', 'cms63c0hw007qazij7njqlhtx', 'Verify unsubscribe processing within 10 business days', false, 2);
+
+
+--
+-- Data for Name: MonitoredPolicy; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+INSERT INTO "public"."MonitoredPolicy" ("id", "businessId", "targetType", "policyId", "targetKey", "label", "active", "lastChecked", "createdAt") VALUES
+	('cms63c09j001dazij6x8zha4q', 'cms63c09f0015azijz2o7q5l7', 'POLICY', 'us-cbp-importer-of-record', NULL, 'Importer of Record obligations and formal entry filing', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.635'),
+	('cms63c09j001eazij3t9iunl5', 'cms63c09f0015azijz2o7q5l7', 'POLICY', 'us-cpsc-general-certificate', NULL, 'General Certificate of Conformity for regulated consumer products', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.635'),
+	('cms63c09j001fazij5qjq7373', 'cms63c09f0015azijz2o7q5l7', 'POLICY', 'us-ca-prop-65', NULL, 'Proposition 65 chemical exposure warnings', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.635'),
+	('cms63c09j001gazij2wcmq0m9', 'cms63c09f0015azijz2o7q5l7', 'POLICY', 'ca-cbsa-carm-import', NULL, 'CARM importer registration and commercial accounting declarations', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.635'),
+	('cms63c09j001hazij55ukoc7l', 'cms63c09f0015azijz2o7q5l7', 'TOPIC', NULL, 'imports_customs', 'imports_customs', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.635'),
+	('cms63c09j001iazij4j5eehh8', 'cms63c09f0015azijz2o7q5l7', 'TOPIC', NULL, 'product_safety', 'product_safety', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.635'),
+	('cms63c0c3002vazijzndevfxv', 'cms63c0c1002nazijksot7xc6', 'POLICY', 'us-ftc-textile-labeling', NULL, 'Textile Fiber Products Identification Act labelling', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.729'),
+	('cms63c0c3002wazij8e64m8oe', 'cms63c0c1002nazijksot7xc6', 'POLICY', 'us-cpsc-flammability-1610', NULL, 'Standard for the Flammability of Clothing Textiles (16 CFR 1610)', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.729'),
+	('cms63c0c3002xazijg85vkqre', 'cms63c0c1002nazijksot7xc6', 'POLICY', 'us-ftc-care-labeling', NULL, 'Care Labeling Rule for textile wearing apparel', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.729'),
+	('cms63c0c3002yazijs722fhxj', 'cms63c0c1002nazijksot7xc6', 'POLICY', 'us-cbp-textile-declaration', NULL, 'Textile and apparel entry declarations and preferential origin claims', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.729'),
+	('cms63c0c3002zazij6k6lqzmf', 'cms63c0c1002nazijksot7xc6', 'TOPIC', NULL, 'textile_labeling', 'textile_labeling', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.729'),
+	('cms63c0c30030azijtbr24cpg', 'cms63c0c1002nazijksot7xc6', 'TOPIC', NULL, 'certification_renewals', 'certification_renewals', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.729'),
+	('cms63c0dq0044azijkyt7tctk', 'cms63c0do003yazij21101fss', 'POLICY', 'us-ca-bppe-tutoring-exemption', NULL, 'Private postsecondary approval and tutoring exemptions', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.788'),
+	('cms63c0dq0045azija1o9fzpj', 'cms63c0do003yazij21101fss', 'POLICY', 'us-ca-la-business-tax-certificate', NULL, 'Los Angeles Business Tax Registration Certificate', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.788'),
+	('cms63c0dq0046azijoj31fkm4', 'cms63c0do003yazij21101fss', 'POLICY', 'us-ca-child-safety-screening', NULL, 'Background screening for staff working with minors', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.788'),
+	('cms63c0dq0047azije00y6ix4', 'cms63c0do003yazij21101fss', 'TOPIC', NULL, 'education_licensing', 'education_licensing', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.788'),
+	('cms63c0dq0048azij5q9lviv9', 'cms63c0do003yazij21101fss', 'TOPIC', NULL, 'permits_licenses', 'permits_licenses', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.788'),
+	('cms63c0ew005aazij0vbsie2u', 'cms63c0eu0051azijotk9pjyb', 'POLICY', 'us-fda-food-code-equipment', NULL, 'FDA Food Code requirements for food equipment and food-contact surfaces', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.83'),
+	('cms63c0ew005bazijibv91mj4', 'cms63c0eu0051azijotk9pjyb', 'POLICY', 'us-nsf-equipment-certification', NULL, 'NSF/ANSI and NRTL certification for commercial food equipment', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.83'),
+	('cms63c0ew005cazij782e8g2e', 'cms63c0eu0051azijotk9pjyb', 'POLICY', 'us-osha-machine-guarding', NULL, 'Machine guarding requirements (29 CFR 1910.212)', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.83'),
+	('cms63c0ew005dazijvz6cebpt', 'cms63c0eu0051azijotk9pjyb', 'POLICY', 'ca-cfia-food-contact-machinery', NULL, 'Canadian machinery safety and food-contact equipment expectations', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.83'),
+	('cms63c0ew005eazijq4ewav9p', 'cms63c0eu0051azijotk9pjyb', 'TOPIC', NULL, 'food_sanitation', 'food_sanitation', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.83'),
+	('cms63c0ew005fazijd1gf77ej', 'cms63c0eu0051azijotk9pjyb', 'TOPIC', NULL, 'machinery_safety', 'machinery_safety', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.83'),
+	('cms63c0ew005gazij69ymyqjw', 'cms63c0eu0051azijotk9pjyb', 'TOPIC', NULL, 'certification_renewals', 'certification_renewals', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.83'),
+	('cms63c0gs006qazijfeq9cnt6', 'cms63c0gq006iazij7snqnv94', 'POLICY', 'ca-crtc-tsp-registration', NULL, 'CRTC telecommunications service provider registration and reporting', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.898'),
+	('cms63c0gs006razijuuuwyyxv', 'cms63c0gq006iazij7snqnv94', 'POLICY', 'ca-pipeda-privacy', NULL, 'PIPEDA — personal information handling and breach reporting', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.898'),
+	('cms63c0gs006sazijrbbf8jkf', 'cms63c0gq006iazij7snqnv94', 'POLICY', 'ca-quebec-law-25', NULL, 'Quebec Law 25 — privacy modernisation obligations', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.898'),
+	('cms63c0gs006tazij9wgeu520', 'cms63c0gq006iazij7snqnv94', 'POLICY', 'us-ca-cpra-privacy', NULL, 'California Consumer Privacy Act as amended by the CPRA', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.898'),
+	('cms63c0gs006uazij9jp0l1ad', 'cms63c0gq006iazij7snqnv94', 'POLICY', 'us-fcc-cpni', NULL, 'FCC Customer Proprietary Network Information rules', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.898'),
+	('cms63c0gs006vazijt1cj2cd2', 'cms63c0gq006iazij7snqnv94', 'TOPIC', NULL, 'privacy', 'privacy', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.898'),
+	('cms63c0gs006wazijnglyfcp8', 'cms63c0gq006iazij7snqnv94', 'TOPIC', NULL, 'telecom_regulation', 'telecom_regulation', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.898'),
+	('cms63c0gs006xazijnojdooky', 'cms63c0gq006iazij7snqnv94', 'TOPIC', NULL, 'reporting', 'reporting', true, '2026-07-28 07:00:00', '2026-07-29 12:58:31.898');
+
+
+--
+-- Data for Name: Reminder; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+INSERT INTO "public"."Reminder" ("id", "businessId", "taskId", "policyId", "kind", "title", "notes", "dueDate", "advanceDays", "snoozedUntil", "dismissed", "createdAt", "updatedAt") VALUES
+	('cms63c0ax002gazijx1sofxc8', 'cms63c09f0015azijz2o7q5l7', NULL, 'us-ca-sales-tax-nexus', 'FILING_DEADLINE', 'California Q3 sales tax return', 'Quarterly return and payment. File even if the period had no taxable sales.', '2026-11-01 07:00:00', 21, NULL, false, '2026-07-29 12:58:31.689', '2026-07-29 12:58:31.689'),
+	('cms63c0b0002hazijq2hd2hs6', 'cms63c09f0015azijz2o7q5l7', NULL, 'us-fda-general-wellness-device', 'POLICY_REVIEW', 'Product marketing claim audit', 'Review website copy for treatment or recovery claims that could make the tub a regulated device.', '2026-08-22 07:00:00', 7, NULL, false, '2026-07-29 12:58:31.692', '2026-07-29 12:58:31.692'),
+	('cms63c0b2002iazijshtaqoch', 'cms63c09f0015azijz2o7q5l7', NULL, 'us-ca-prop-65', 'COMPLIANCE_DEADLINE', 'Prop 65 short-form label update', 'Short-form warnings now have to name a listed chemical. Existing artwork needs revision.', '2026-08-09 07:00:00', 14, NULL, false, '2026-07-29 12:58:31.694', '2026-07-29 12:58:31.694'),
+	('cms63c0d1003tazijz46121di', 'cms63c0c1002nazijksot7xc6', NULL, 'us-cpsc-flammability-1610', 'COMPLIANCE_DEADLINE', 'Flammability records requirement takes effect', 'From 30 September, exemption claims for napped fabrics need construction evidence rather than only a supplier guaranty.', '2026-10-01 07:00:00', 30, NULL, false, '2026-07-29 12:58:31.765', '2026-07-29 12:58:31.765'),
+	('cms63c0d4003uazijqfzu7sf5', 'cms63c0c1002nazijksot7xc6', NULL, 'us-cpsc-flammability-1610', 'CERTIFICATION_RENEWAL', 'Fabric test report renewal', 'Re-test where the fabric supplier, construction or finish has changed since last season.', '2026-08-19 07:00:00', 14, NULL, false, '2026-07-29 12:58:31.768', '2026-07-29 12:58:31.768'),
+	('cms63c0d6003vazijohu8vjp8', 'cms63c0c1002nazijksot7xc6', NULL, 'us-ny-sales-tax-nexus', 'FILING_DEADLINE', 'New York sales tax quarter ends', 'Quarter ends 31 August; return due around 21 September. Check clothing exemption configuration by locality.', '2026-09-01 07:00:00', 14, NULL, false, '2026-07-29 12:58:31.77', '2026-07-29 12:58:31.77'),
+	('cms63c0eg004yazijppwuo8ke', 'cms63c0do003yazij21101fss', NULL, 'us-ca-child-safety-screening', 'COMPLIANCE_DEADLINE', 'Instructor clearance audit', 'Verify every current instructor has an active Live Scan clearance on file.', '2026-08-13 07:00:00', 7, NULL, false, '2026-07-29 12:58:31.816', '2026-07-29 12:58:31.816'),
+	('cms63c0ej004zazij2u4xe5vm', 'cms63c0do003yazij21101fss', NULL, 'us-local-occupancy-fire-permit', 'PERMIT_RENEWAL', 'Annual fire inspection', 'Schedule ahead of the busy autumn term.', '2026-10-21 07:00:00', 30, NULL, false, '2026-07-29 12:58:31.819', '2026-07-29 12:58:31.819'),
+	('cms63c0el0050azij5t0ts0a3', 'cms63c0do003yazij21101fss', NULL, 'us-ca-la-business-tax-certificate', 'FILING_DEADLINE', 'LA business tax renewal', 'Due 28 February. Filing on time preserves the small business exemption.', '2027-03-01 07:00:00', 45, NULL, false, '2026-07-29 12:58:31.821', '2026-07-29 12:58:31.821'),
+	('cms63c0g2006cazij6hbe37w1', 'cms63c0eu0051azijotk9pjyb', NULL, 'us-nsf-equipment-certification', 'CERTIFICATION_RENEWAL', 'NSF factory audit window opens', 'Unannounced inspections resume. Production records and retained samples must be ready.', '2026-08-25 07:00:00', 21, NULL, false, '2026-07-29 12:58:31.874', '2026-07-29 12:58:31.874'),
+	('cms63c0g5006dazijejxkon1y', 'cms63c0eu0051azijotk9pjyb', NULL, 'us-nsf-equipment-certification', 'CERTIFICATION_RENEWAL', 'UL listing annual review and fee', 'Maintain the listing so the mark remains valid on shipped equipment.', '2026-12-16 07:00:00', 30, NULL, false, '2026-07-29 12:58:31.877', '2026-07-29 12:58:31.877'),
+	('cms63c0g7006eazijkkjexgpm', 'cms63c0eu0051azijotk9pjyb', NULL, 'us-tx-equipment-property-tax', 'FILING_DEADLINE', 'Texas business personal property rendition', 'Due 15 April. Reconcile the fixed asset register including demo and loaner units.', '2027-04-16 07:00:00', 45, NULL, false, '2026-07-29 12:58:31.879', '2026-07-29 12:58:31.879'),
+	('cms63c0ga006fazijupjg8myk', 'cms63c0eu0051azijotk9pjyb', NULL, 'us-local-health-plan-review', 'COMPLIANCE_DEADLINE', 'Plan review submissions for Q4 installations', 'Submit health department plan reviews ahead of scheduled installations.', '2026-09-23 07:00:00', 21, NULL, false, '2026-07-29 12:58:31.882', '2026-07-29 12:58:31.882'),
+	('cms63c0hz007uazijtozosu3o', 'cms63c0gq006iazij7snqnv94', NULL, 'ca-quebec-law-25', 'COMPLIANCE_DEADLINE', 'Quebec privacy impact assessment for US transfer', 'Must be complete before subscriber data is processed in US regions.', '2026-08-29 07:00:00', 14, NULL, false, '2026-07-29 12:58:31.943', '2026-07-29 12:58:31.943'),
+	('cms63c0i1007vazij55esr0og', 'cms63c0gq006iazij7snqnv94', NULL, 'ca-crtc-tsp-registration', 'FILING_DEADLINE', 'CRTC annual data collection filing', 'Annual telecommunications revenue return. Categories were restructured this year.', '2027-04-01 07:00:00', 60, NULL, false, '2026-07-29 12:58:31.945', '2026-07-29 12:58:31.945'),
+	('cms63c0i4007wazijx8sxqttq', 'cms63c0gq006iazij7snqnv94', NULL, 'us-fcc-cpni', 'FILING_DEADLINE', 'CPNI annual officer certification', 'Due 1 March covering the prior calendar year, signed by a corporate officer.', '2027-03-02 07:00:00', 60, NULL, false, '2026-07-29 12:58:31.948', '2026-07-29 12:58:31.948'),
+	('cms63c0i7007xazij3186g9kw', 'cms63c0gq006iazij7snqnv94', NULL, 'ca-pipeda-privacy', 'POLICY_REVIEW', 'Annual privacy programme review', 'Review consent flows, retention schedules and the breach log.', '2026-10-06 07:00:00', 21, NULL, false, '2026-07-29 12:58:31.951', '2026-07-29 12:58:31.951');
+
+
+--
+-- Data for Name: Notification; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+INSERT INTO "public"."Notification" ("id", "userId", "businessId", "reminderId", "kind", "title", "body", "href", "read", "createdAt") VALUES
+	('cms63c0b5002jazija3fug13o', '068a80e0-413c-42b9-ad7a-f3f53e8a78bc', 'cms63c09f0015azijz2o7q5l7', 'cms63c0b2002iazijshtaqoch', 'REMINDER', 'Prop 65 short-form label update', 'Due in 11 days.', '/reminders', false, '2026-07-29 12:58:31.697'),
+	('cms63c0bi002kazijdppsddh9', '068a80e0-413c-42b9-ad7a-f3f53e8a78bc', 'cms63c09f0015azijz2o7q5l7', NULL, 'POLICY_UPDATE', 'Electronic certificate filing expanded to more product categories', 'Importers in newly covered categories must transmit certificate data at entry instead of only retaining the certificate. Check whether your product''s category is now in scope and c', '/monitoring?update=cms63c072000nazijvgrgsndv', false, '2026-07-29 12:58:31.71'),
+	('cms63c0bl002lazijyirsoukn', '068a80e0-413c-42b9-ad7a-f3f53e8a78bc', 'cms63c09f0015azijz2o7q5l7', NULL, 'POLICY_UPDATE', 'Broker bond transition relief has ended', 'Importers must now post their own financial security to keep release-prior-to-payment privileges. Importers still relying on a broker''s bond will see shipments held pending payment', '/monitoring?update=cms63c07e000qazijt300xu4u', false, '2026-07-29 12:58:31.713'),
+	('cms63c0bn002mazijg9d56dt8', '068a80e0-413c-42b9-ad7a-f3f53e8a78bc', 'cms63c09f0015azijz2o7q5l7', NULL, 'POLICY_UPDATE', 'Short-form warnings must now name a listed chemical', 'Short-form Proposition 65 warnings without a named chemical are no longer compliant. Labels and online warnings both need updating, subject to a sell-through period for existing st', '/monitoring?update=cms63c07x000vazijk0fw0ap7', false, '2026-07-29 12:58:31.715'),
+	('cms63c0db003wazijaqi4d3jh', '068a80e0-413c-42b9-ad7a-f3f53e8a78bc', 'cms63c0c1002nazijksot7xc6', NULL, 'POLICY_UPDATE', 'Fibre content and origin must appear in online listings', 'Updated FTC guidance confirms that e-commerce product descriptions must disclose fibre content and country of origin. Product pages and marketplace listings both need review.', '/monitoring?update=cms63c077000oazijbagwmxp6', false, '2026-07-29 12:58:31.775'),
+	('cms63c0de003xazijui51shym', '068a80e0-413c-42b9-ad7a-f3f53e8a78bc', 'cms63c0c1002nazijksot7xc6', NULL, 'POLICY_UPDATE', 'Tighter records for raised-surface fabric exemptions take effect 30 September', 'Claims that a napped or brushed fabric is exempt from flammability testing will require fabric construction evidence on file. A supplier guaranty alone will no longer be sufficient', '/monitoring?update=cms63c07a000pazij5hi2ygb8', false, '2026-07-29 12:58:31.778'),
+	('cms63c0gd006gazij770i3ny6', '068a80e0-413c-42b9-ad7a-f3f53e8a78bc', 'cms63c0eu0051azijotk9pjyb', NULL, 'POLICY_UPDATE', 'New guidance for automated and robotic food preparation equipment', 'Cleaning access to enclosed drive and dispensing mechanisms must be documented, along with a validated cleaning frequency. Health departments are expected to ask for this at plan r', '/monitoring?update=cms63c07i000razijtb3oybox', false, '2026-07-29 12:58:31.885'),
+	('cms63c0gf006hazijtnguz6rk', '068a80e0-413c-42b9-ad7a-f3f53e8a78bc', 'cms63c0eu0051azijotk9pjyb', NULL, 'POLICY_UPDATE', 'Factory audit window opens 24 August', 'Unannounced factory inspections resume in the next audit window. Production records and retained samples should be ready.', '/monitoring?update=cms63c082000xazijr0wx2tf4', false, '2026-07-29 12:58:31.887'),
+	('cms63c0ib007yazij3djgqcle', '068a80e0-413c-42b9-ad7a-f3f53e8a78bc', 'cms63c0gq006iazij7snqnv94', NULL, 'POLICY_UPDATE', 'Risk assessment and cybersecurity audit rules finalised', 'Businesses conducting higher-risk processing must complete documented risk assessments, with annual cybersecurity audits above defined thresholds. Submission dates are phased by pr', '/monitoring?update=cms63c07m000sazijpclvp2h8', false, '2026-07-29 12:58:31.955');
+
+
+--
+-- Data for Name: PolicyVersion; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+INSERT INTO "public"."PolicyVersion" ("id", "policyId", "version", "effectiveAt", "summary", "changeNote", "createdAt") VALUES
+	('cms4zo0f6000bfwijgorgmvca', 'us-fda-food-code-equipment', 1, '2023-01-01 00:00:00', '2022 Food Code edition published.', 'Initial record.', '2026-07-28 18:28:07.074'),
+	('cms4zo0f9000cfwijdsu7zm4d', 'us-fda-food-code-equipment', 2, '2026-06-11 00:00:00', 'Guidance added for automated and robotic food preparation equipment, covering cleaning access to enclosed mechanisms.', 'Automated equipment must document cleaning access and validated cleaning frequency for enclosed drive and dispensing mechanisms.', '2026-07-28 18:28:07.077'),
+	('cms4zo0fb000dfwij14v4ph6v', 'us-ca-cpra-privacy', 1, '2023-01-01 00:00:00', 'CPRA amendments take effect.', 'Initial record.', '2026-07-28 18:28:07.079'),
+	('cms4zo0fd000efwij2dhhtinb', 'us-ca-cpra-privacy', 2, '2026-06-19 00:00:00', 'Risk assessment and cybersecurity audit regulations finalised, with phased submission dates by processing volume.', 'Businesses conducting higher-risk processing must complete documented risk assessments and, above thresholds, annual cybersecurity audits.', '2026-07-28 18:28:07.081'),
+	('cms4zo0ff000ffwij4s0psh5g', 'ca-quebec-law-25', 1, '2023-09-22 00:00:00', 'Core Law 25 obligations take effect.', 'Initial record.', '2026-07-28 18:28:07.083'),
+	('cms4zo0fh000gfwij3ud239vq', 'ca-quebec-law-25', 2, '2026-04-17 00:00:00', 'Regulator guidance on privacy impact assessments for transfers outside Quebec expanded, with a published assessment template.', 'Transfers outside Quebec require a documented assessment covering sensitivity, purposes, safeguards and the legal regime of the destination.', '2026-07-28 18:28:07.085'),
+	('cms4zo0fj000hfwijphz96tdg', 'ca-crtc-tsp-registration', 1, '2021-09-01 00:00:00', 'Mandatory TSP registration introduced.', 'Initial record.', '2026-07-28 18:28:07.087'),
+	('cms4zo0fm000ifwijdt752iq9', 'ca-crtc-tsp-registration', 2, '2026-06-02 00:00:00', 'Annual data collection categories restructured; providers must break out revenue by additional service categories.', 'Revenue reporting categories changed, requiring providers to remap internal revenue classifications before the next filing.', '2026-07-28 18:28:07.09'),
+	('cms4zo0ft000lfwijvr2qsguh', 'us-ca-sales-tax-nexus', 1, '2019-04-01 00:00:00', 'Economic nexus threshold established following Wayfair.', 'Initial record.', '2026-07-28 18:28:07.097'),
+	('cms4zo0fv000mfwiji1m1g0p6', 'mx-nom-050-labelling', 1, '2004-08-30 00:00:00', 'General commercial information labelling requirements.', 'Initial record.', '2026-07-28 18:28:07.099'),
+	('cms4zo0es0003fwijiezubcp4', 'us-cpsc-general-certificate', 1, '2008-11-12 00:00:00', 'Original certification requirement introduced by the CPSIA.', 'Initial record.', '2026-07-28 18:28:07.06'),
+	('cms4zo0ev0004fwijggc252yn', 'us-cpsc-general-certificate', 2, '2026-01-22 00:00:00', 'Electronic filing of certificate data at entry expanded to additional consumer product categories.', 'Importers in newly covered categories must transmit certificate data elements electronically at the time of entry rather than only holding the certificate on file.', '2026-07-28 18:28:07.063'),
+	('cms4zo0ex0005fwijpeva7iq2', 'us-ftc-textile-labeling', 1, '1960-03-03 00:00:00', 'Original fibre content and origin disclosure requirements.', 'Initial record.', '2026-07-28 18:28:07.065'),
+	('cms4zo0ey0006fwijw1t3t38p', 'us-ftc-textile-labeling', 2, '2026-02-25 00:00:00', 'Guidance clarified that fibre content and country of origin must appear in the online product description, not only on the physical label.', 'E-commerce listings must carry the same disclosures as the garment label. Marketplace listings are explicitly in scope.', '2026-07-28 18:28:07.066'),
+	('cms4zo0f00007fwijnzacsfqc', 'us-cpsc-flammability-1610', 1, '1954-07-01 00:00:00', 'Original flammability classification for clothing textiles.', 'Initial record.', '2026-07-28 18:28:07.068'),
+	('cms4zo0f10008fwijmnhlxtxv', 'us-cpsc-flammability-1610', 2, '2026-09-30 00:00:00', 'Updated test method references and tightened record retention for raised-surface fabric exemption claims.', 'Suppliers claiming exemption for napped or brushed fabrics must retain fabric construction evidence, not only a supplier guaranty.', '2026-07-28 18:28:07.069'),
+	('cms4zo0f30009fwij0geg5btg', 'ca-cbsa-carm-import', 1, '2024-10-21 00:00:00', 'CARM becomes the system of record for commercial importing.', 'Initial record.', '2026-07-28 18:28:07.071'),
+	('cms4zo0f4000afwij2dye5zus', 'ca-cbsa-carm-import', 2, '2026-05-19 00:00:00', 'Transition relief for importers without their own financial security ended; release-prior-to-payment now requires the importer''s own security.', 'Importers still relying on a broker''s bond lose release privileges and must post their own security.', '2026-07-28 18:28:07.073'),
+	('cms4zo0fo000jfwij9tdny74w', 'us-ca-prop-65', 1, '1988-02-27 00:00:00', 'Original warning requirement.', 'Initial record.', '2026-07-28 18:28:07.092'),
+	('cms4zo0fr000kfwijqpvirp2s', 'us-ca-prop-65', 2, '2026-01-08 00:00:00', 'Short-form warning content restricted; short-form warnings must now name at least one listed chemical.', 'Existing short-form labels without a named chemical must be updated. A sell-through period applies to products already labelled.', '2026-07-28 18:28:07.095');
+
+
+--
+-- Data for Name: PolicyUpdate; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+INSERT INTO "public"."PolicyUpdate" ("id", "policyId", "versionId", "type", "title", "description", "importance", "detectedAt") VALUES
+	('cms63c072000nazijvgrgsndv', 'us-cpsc-general-certificate', 'cms4zo0ev0004fwijggc252yn', 'REQUIREMENT_CHANGED', 'Electronic certificate filing expanded to more product categories', 'Importers in newly covered categories must transmit certificate data at entry instead of only retaining the certificate. Check whether your product''s category is now in scope and confirm your broker can transmit the data elements.', 'HIGH', '2026-07-23 07:00:00'),
+	('cms63c077000oazijbagwmxp6', 'us-ftc-textile-labeling', 'cms4zo0ey0006fwijw1t3t38p', 'UPDATED_POLICY', 'Fibre content and origin must appear in online listings', 'Updated FTC guidance confirms that e-commerce product descriptions must disclose fibre content and country of origin. Product pages and marketplace listings both need review.', 'HIGH', '2026-07-26 07:00:00'),
+	('cms63c07a000pazij5hi2ygb8', 'us-cpsc-flammability-1610', 'cms4zo0f10008fwijmnhlxtxv', 'EFFECTIVE_DATE_CHANGED', 'Tighter records for raised-surface fabric exemptions take effect 30 September', 'Claims that a napped or brushed fabric is exempt from flammability testing will require fabric construction evidence on file. A supplier guaranty alone will no longer be sufficient.', 'CRITICAL', '2026-07-20 07:00:00'),
+	('cms63c07e000qazijt300xu4u', 'ca-cbsa-carm-import', 'cms4zo0f4000afwij2dye5zus', 'REQUIREMENT_CHANGED', 'Broker bond transition relief has ended', 'Importers must now post their own financial security to keep release-prior-to-payment privileges. Importers still relying on a broker''s bond will see shipments held pending payment.', 'CRITICAL', '2026-07-17 07:00:00'),
+	('cms63c07i000razijtb3oybox', 'us-fda-food-code-equipment', 'cms4zo0f9000cfwijdsu7zm4d', 'UPDATED_POLICY', 'New guidance for automated and robotic food preparation equipment', 'Cleaning access to enclosed drive and dispensing mechanisms must be documented, along with a validated cleaning frequency. Health departments are expected to ask for this at plan review.', 'HIGH', '2026-07-25 07:00:00'),
+	('cms63c07m000sazijpclvp2h8', 'us-ca-cpra-privacy', 'cms4zo0fd000efwij2dhhtinb', 'NEW_POLICY', 'Risk assessment and cybersecurity audit rules finalised', 'Businesses conducting higher-risk processing must complete documented risk assessments, with annual cybersecurity audits above defined thresholds. Submission dates are phased by processing volume.', 'HIGH', '2026-07-21 07:00:00'),
+	('cms63c07p000tazijwjdgkt6j', 'ca-quebec-law-25', 'cms4zo0fh000gfwij3ud239vq', 'UPDATED_POLICY', 'Expanded guidance on privacy impact assessments for data leaving Quebec', 'The regulator published an assessment template covering sensitivity, purposes, safeguards and the destination''s legal regime. Existing transfer assessments should be re-checked against it.', 'MODERATE', '2026-07-14 07:00:00'),
+	('cms63c07u000uazij6o2nquxb', 'ca-crtc-tsp-registration', 'cms4zo0fm000ifwijdt752iq9', 'REQUIREMENT_CHANGED', 'Annual data collection revenue categories restructured', 'Service revenue must be reported under a revised category structure. Internal revenue mapping should be updated well before the next annual filing.', 'MODERATE', '2026-07-09 07:00:00'),
+	('cms63c07x000vazijk0fw0ap7', 'us-ca-prop-65', 'cms4zo0fr000kfwijqpvirp2s', 'REQUIREMENT_CHANGED', 'Short-form warnings must now name a listed chemical', 'Short-form Proposition 65 warnings without a named chemical are no longer compliant. Labels and online warnings both need updating, subject to a sell-through period for existing stock.', 'HIGH', '2026-07-11 07:00:00'),
+	('cms63c07z000wazijhubx8fuy', 'us-ca-sales-tax-nexus', NULL, 'DEADLINE_APPROACHING', 'Q3 California sales tax return due 31 October', 'The quarterly return and payment are due at the end of the month following quarter end. Zero returns are still required if you are registered.', 'MODERATE', '2026-07-27 07:00:00'),
+	('cms63c082000xazijr0wx2tf4', 'us-nsf-equipment-certification', NULL, 'DEADLINE_APPROACHING', 'Factory audit window opens 24 August', 'Unannounced factory inspections resume in the next audit window. Production records and retained samples should be ready.', 'HIGH', '2026-07-24 07:00:00'),
+	('cms63c083000yazij6pzppkzs', 'ca-gst-hst-registration', NULL, 'DEADLINE_APPROACHING', 'Quarterly GST/HST return due 31 October', 'The return and net tax payment are due one month after the reporting period ends.', 'MODERATE', '2026-07-28 07:00:00'),
+	('cms63c086000zazijgdy801nx', 'us-ca-bppe-tutoring-exemption', NULL, 'UPDATED_POLICY', 'Exemption guidance refreshed for supplemental education providers', 'Updated guidance restates how the Bureau distinguishes non-vocational tutoring from programmes requiring approval. Providers adding adult programmes should re-run their analysis.', 'MODERATE', '2026-07-18 07:00:00'),
+	('cms63c0880010azijakowkilj', 'mx-padron-importadores', NULL, 'UPDATED_POLICY', 'Sectoral registry review cycle tightened', 'Registry status checks tied to tax-compliance standing are being applied more frequently. Confirm registry status before booking freight.', 'MODERATE', '2026-07-07 07:00:00'),
+	('cms63c0890011azij8avgt8pi', 'us-fcc-cpni', NULL, 'DEADLINE_APPROACHING', 'Annual CPNI officer certification preparation', 'The signed officer certification is due 1 March covering the prior calendar year. Compliance statements and complaint summaries take time to assemble.', 'MODERATE', '2026-07-22 07:00:00'),
+	('cms63c08b0012azijtbp2tze0', 'us-ca-la-business-tax-certificate', NULL, 'DEADLINE_APPROACHING', 'Business tax renewal window approaching', 'The renewal must be filed by 28 February to keep the small business exemption. Prior-year gross receipts by classification are needed.', 'MODERATE', '2026-07-15 07:00:00'),
+	('cms63c08d0013azijsn6ls2qf', 'us-country-of-origin-marking', NULL, 'UPDATED_POLICY', 'Marking enforcement focus on e-commerce fulfilment', 'Enforcement attention has shifted toward goods entering through e-commerce fulfilment channels where marking is applied after import.', 'MODERATE', '2026-07-03 07:00:00'),
+	('cms63c08f0014azijqi8jmdnf', 'ca-packaging-labelling-bilingual', NULL, 'UPDATED_POLICY', 'Reminder issued on bilingual net quantity type height', 'Guidance restated the minimum type height rules for net quantity declarations based on principal display surface area.', 'LOW', '2026-06-29 07:00:00');
+
+
+--
+-- Data for Name: PolicyUpdateReview; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+
+
+--
+-- Data for Name: Report; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+INSERT INTO "public"."Report" ("id", "businessId", "userId", "title", "kind", "payload", "createdAt") VALUES
+	('cms5wdmnl002f86ije3qhvgch', 'cms5wcfa0002986ijpaho4mko', '26d42de8-dd34-411f-91a0-a012c3d383d9', 'Tesla compliance summary — 29 Jul 2026', 'compliance_summary', '{"risk": {"level": "Low", "score": 26, "factors": [{"label": "Regulatory changes are reviewed infrequently", "detail": "You told us reviews happen rarely or that nothing formal tracks them today.", "points": 8, "direction": "increase"}, {"label": "No dedicated compliance staff", "detail": "Obligations are handled alongside other responsibilities, which raises the chance of a miss.", "points": 6, "direction": "increase"}], "summary": "Your tracked obligations are in reasonable shape. Keep monitoring in place."}, "business": {"name": "Tesla", "orgType": "LLC", "website": "https://tesla.com", "industry": "Imported consumer products", "location": "Astana, Connecticut, United States", "sizeBand": "1000+", "expansion": "Sell electro cars — Toronto, Ontario, Canada", "priorities": ["Business registration", "Permits & licenses", "Employment", "Taxation", "Privacy & data", "Certification renewals", "Product standards", "Imports & customs", "Reporting"], "description": "Selling electro cars", "employeeCount": 500000, "hasComplianceStaff": false}, "nextSteps": ["Complete your business profile — missing: Business description, Products or services, How compliance is tracked today.", "Run a jurisdiction comparison before expanding into Ontario.", "Confirm your position on \"Importer of Record obligations and formal entry filing\" (U.S. Customs and Border Protection (CBP))."], "openTasks": [], "disclaimer": "RegLens provides regulatory information and organizational tools. It does not constitute legal, tax, accounting, or professional advice. Regulations may change, and users should verify important requirements with the responsible authority or a qualified professional.", "generatedAt": "2026-07-29T09:43:49.999Z", "jurisdictions": {"targets": ["Ontario", "Canada (Federal)"], "operating": ["United States (Federal)", "Connecticut"]}, "recentChanges": [], "completedTasks": [], "relevantPolicies": [{"id": "us-cbp-importer-of-record", "title": "Importer of Record obligations and formal entry filing", "agency": "U.S. Customs and Border Protection (CBP)", "status": "IN_FORCE", "summary": "If your company brings goods into the United States, someone has to be legally responsible for that shipment. That party is the Importer of Record. You must declare what the goods are, where they were made, what they are worth, and pay any duty owed. Shipments valued above the de minimis threshold need a formal entry filed within a set window after arrival.", "relevance": 100, "sourceUrl": "https://www.cbp.gov/trade/basic-import-export", "sourceName": "CBP — Importing into the United States", "jurisdiction": "United States (Federal)"}, {"id": "us-country-of-origin-marking", "title": "Country of origin marking on imported articles", "agency": "U.S. Customs and Border Protection (CBP)", "status": "IN_FORCE", "summary": "Nearly every imported article must be permanently and legibly marked with the English name of the country where it was made, in a place the end purchaser will see it. If the article itself cannot be marked, the container usually must be.", "relevance": 99, "sourceUrl": "https://www.cbp.gov/trade/rulings/marking-country-origin", "sourceName": "CBP — Marking of Country of Origin", "jurisdiction": "United States (Federal)"}, {"id": "us-cpsc-general-certificate", "title": "General Certificate of Conformity for regulated consumer products", "agency": "U.S. Consumer Product Safety Commission (CPSC)", "status": "IN_FORCE", "summary": "If you import or manufacture a consumer product that is covered by a CPSC safety rule, you must issue a written certificate saying the product complies. The certificate has to be based on a test or a reasonable testing program, must accompany the shipment, and must be available to CBP and CPSC on request.", "relevance": 99, "sourceUrl": "https://www.cpsc.gov/Business--Manufacturing/Testing-Certification", "sourceName": "CPSC — Certificates of Compliance", "jurisdiction": "United States (Federal)"}, {"id": "ca-cbsa-carm-import", "title": "CARM importer registration and commercial accounting declarations", "agency": "Canada Border Services Agency (CBSA)", "status": "IN_FORCE", "summary": "Commercial importers into Canada must have their own CARM Client Portal account, delegate authority to their customs broker, and post their own financial security. Accounting for goods and payment of duties and GST now runs through the importer''s portal account rather than sitting entirely with the broker.", "relevance": 94, "sourceUrl": "https://www.cbsa-asfc.gc.ca/services/carm-gcra/menu-eng.html", "sourceName": "CBSA — CARM", "jurisdiction": "Canada (Federal)"}, {"id": "us-cpsc-flammability-1610", "title": "Standard for the Flammability of Clothing Textiles (16 CFR 1610)", "agency": "U.S. Consumer Product Safety Commission (CPSC)", "status": "IN_FORCE", "summary": "Fabric used in clothing sold in the United States has to meet a flammability standard. Most ordinary fabrics are exempt from testing by weight or fibre type, but napped, brushed or lightweight fabrics usually need laboratory testing and supporting records before the garment can be certified.", "relevance": 91, "sourceUrl": "https://www.cpsc.gov/Business--Manufacturing/Business-Education/Business-Guidance/Clothing-Textiles", "sourceName": "CPSC — Clothing Textiles Flammability Standard", "jurisdiction": "United States (Federal)"}, {"id": "us-ftc-textile-labeling", "title": "Textile Fiber Products Identification Act labelling", "agency": "U.S. Federal Trade Commission (FTC)", "status": "IN_FORCE", "summary": "Clothing and most textile products need a label showing the fibre content by percentage, the country where the product was processed or manufactured, and the identity of the company responsible. The label must be attached so it stays on until the consumer buys the item.", "relevance": 88, "sourceUrl": "https://www.ftc.gov/business-guidance/resources/threading-your-way-through-labeling-requirements-under-textile-wool-acts", "sourceName": "FTC — Threading Your Way Through the Labeling Requirements", "jurisdiction": "United States (Federal)"}, {"id": "ca-consumer-product-safety-act", "title": "Canada Consumer Product Safety Act — supplier duties and incident reporting", "agency": "Health Canada", "status": "IN_FORCE", "summary": "Anyone who manufactures, imports, advertises or sells consumer products in Canada must not supply a product that is a danger to human health or safety. If you learn of an incident involving your product, you must report it to Health Canada within two days and follow with a fuller report within ten days.", "relevance": 85, "sourceUrl": "https://www.canada.ca/en/health-canada/services/consumer-product-safety/legislation-guidelines/acts-regulations.html", "sourceName": "Health Canada — Canada Consumer Product Safety Act", "jurisdiction": "Canada (Federal)"}, {"id": "us-fda-general-wellness-device", "title": "General wellness products versus regulated medical devices", "agency": "U.S. Food and Drug Administration (FDA)", "status": "IN_FORCE", "summary": "How you describe your product can change whether the FDA regulates it. A recovery or wellness product that only makes general wellness claims usually sits outside device regulation. The moment marketing claims treatment, cure, mitigation or diagnosis of a specific condition, the same physical product may become a regulated medical device.", "relevance": 85, "sourceUrl": "https://www.fda.gov/regulatory-information/search-fda-guidance-documents/general-wellness-policy-low-risk-devices", "sourceName": "FDA — General Wellness: Policy for Low Risk Devices", "jurisdiction": "United States (Federal)"}, {"id": "us-ftc-care-labeling", "title": "Care Labeling Rule for textile wearing apparel", "agency": "U.S. Federal Trade Commission (FTC)", "status": "IN_FORCE", "summary": "Clothing must carry a permanent care label giving at least one safe cleaning method. You need a reasonable basis — usually testing or reliable evidence — for the instructions before the garment goes on sale, and you must warn about any procedure that would damage the garment.", "relevance": 85, "sourceUrl": "https://www.ftc.gov/business-guidance/resources/clothes-captioning-complying-care-labeling-rule", "sourceName": "FTC — Clothes Captioning: Complying with the Care Labeling Rule", "jurisdiction": "United States (Federal)"}, {"id": "us-fda-food-code-equipment", "title": "FDA Food Code requirements for food equipment and food-contact surfaces", "agency": "U.S. Food and Drug Administration (FDA)", "status": "IN_FORCE", "summary": "Equipment used in commercial food operations must be built so it can be cleaned properly. In practice this means food-contact surfaces have to be smooth, non-absorbent and corrosion-resistant, and equipment is expected to be certified to a recognised sanitation standard such as NSF/ANSI 2 or 4 before health inspectors will accept it.", "relevance": 78, "sourceUrl": "https://www.fda.gov/food/retail-food-protection/fda-food-code", "sourceName": "FDA — Food Code", "jurisdiction": "United States (Federal)"}], "profileCompletion": {"missing": ["Business description", "Products or services", "How compliance is tracked today"], "percent": 75}, "upcomingDeadlines": []}', '2026-07-29 09:43:50.001');
+
+
+--
+-- Data for Name: SavedComparison; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+
+
+--
+-- Data for Name: SavedPolicy; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+INSERT INTO "public"."SavedPolicy" ("id", "businessId", "policyId", "note", "createdAt") VALUES
+	('cms63c09k001jazijv7vp7al7', 'cms63c09f0015azijz2o7q5l7', 'us-fda-general-wellness-device', '', '2026-07-29 12:58:31.635'),
+	('cms63c09k001kazijjbdl9495', 'cms63c09f0015azijz2o7q5l7', 'ca-packaging-labelling-bilingual', '', '2026-07-29 12:58:31.635'),
+	('cms63c0c40031azijmpn3qbfc', 'cms63c0c1002nazijksot7xc6', 'ca-textile-labelling-act', '', '2026-07-29 12:58:31.729'),
+	('cms63c0c40032azij482f1ood', 'cms63c0c1002nazijksot7xc6', 'us-ny-sales-tax-nexus', '', '2026-07-29 12:58:31.729'),
+	('cms63c0dr0049azijxttuzy70', 'cms63c0do003yazij21101fss', 'us-local-occupancy-fire-permit', '', '2026-07-29 12:58:31.788'),
+	('cms63c0ey005hazijpkddofj1', 'cms63c0eu0051azijotk9pjyb', 'us-local-health-plan-review', '', '2026-07-29 12:58:31.83'),
+	('cms63c0ey005iazijy5zifjb5', 'cms63c0eu0051azijotk9pjyb', 'us-tx-equipment-property-tax', '', '2026-07-29 12:58:31.83'),
+	('cms63c0gt006yazijsjdc9m1z', 'cms63c0gq006iazij7snqnv94', 'us-fcc-form-499', '', '2026-07-29 12:58:31.898'),
+	('cms63c0gt006zazijxd7ikdfo', 'cms63c0gq006iazij7snqnv94', 'ca-casl-anti-spam', '', '2026-07-29 12:58:31.898');
+
+
+--
+-- Data for Name: SubscriptionPlan; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+INSERT INTO "public"."SubscriptionPlan" ("id", "tier", "name", "priceMonthly", "tagline", "features", "limits", "highlighted", "displayOrder") VALUES
+	('cms4zo01z0002fwiju5pqnk5c', 'BUSINESS', 'Business', 9900, 'For organisations tracking several entities or jurisdictions.', '{"Everything in Pro","Multiple business profiles, team-ready","Expanded monitoring across jurisdictions and topics","Advanced reports with change history","Priority AI analysis queue","Positioned for future ERP and document integrations"}', '{"businesses": 25, "aiQuestions": null, "monitoredItems": null, "policySearches": null}', false, 2),
+	('cms4zo00q0000fwijv6gk8haa', 'FREE', 'Free', 0, 'See how RegLens reads your business before committing.', '{"Short onboarding — company basics only","10 policy searches per month","3 AI Analyst questions per month","Dashboard preview with risk score","1 business profile"}', '{"businesses": 1, "aiQuestions": 3, "monitoredItems": 3, "policySearches": 10}', false, 0),
+	('cms4zo01v0001fwijcwq1ohhd', 'PRO', 'Pro', 2900, 'For a small team carrying compliance without a specialist.', '{"Full business profile and onboarding survey","Unlimited policy search","Personalised AI policy analysis","Custom compliance checklists","Action planner with tasks and deadlines","Deadline reminders and notifications","Policy monitoring and change feed","Jurisdiction comparison","Compliance reports"}', '{"businesses": 3, "aiQuestions": null, "monitoredItems": 50, "policySearches": null}', true, 1);
+
+
+--
+-- Data for Name: _prisma_migrations; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+INSERT INTO "public"."_prisma_migrations" ("id", "checksum", "finished_at", "migration_name", "logs", "rolled_back_at", "started_at", "applied_steps_count") VALUES
+	('307435ed-c7f6-4b17-8a5e-d65ad0c05ce0', '5cb81ea3c7fe8a20cc50c993a42f5f95992079a605392795a082ce6e4d6de7b4', '2026-07-28 18:26:11.781689+00', '20260728182611_init', NULL, NULL, '2026-07-28 18:26:11.653077+00', 1);
+
+
+--
+-- PostgreSQL database dump complete
+--
+
+-- \unrestrict E5n5sF1NfQKVyIwtxJS4RNkamuLw9A2p6NkKxKZwAnyuKVgPs5IJr1spbe8vWk1
+
+RESET ALL;
+
+SET session_replication_role = DEFAULT;
+
+
+-- ===========================================================================
+-- 3. VERIFY
+-- ===========================================================================
+
+SELECT 'jurisdictions' AS table, count(*) FROM "Jurisdiction"
+UNION ALL SELECT 'policies',      count(*) FROM "Policy"
+UNION ALL SELECT 'policy updates',count(*) FROM "PolicyUpdate"
+UNION ALL SELECT 'businesses',    count(*) FROM "Business"
+UNION ALL SELECT 'tasks',         count(*) FROM "Task"
+UNION ALL SELECT 'reminders',     count(*) FROM "Reminder"
+UNION ALL SELECT 'monitored',     count(*) FROM "MonitoredPolicy"
+UNION ALL SELECT 'plans',         count(*) FROM "SubscriptionPlan";
