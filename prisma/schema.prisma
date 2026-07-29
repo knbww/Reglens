@@ -1,0 +1,577 @@
+// RegLens AI — data model
+// Postgres (Supabase). Auth users live in Supabase `auth.users`; the `User`
+// row below mirrors that identity so application data can own foreign keys.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Prisma 7: connection URLs live in prisma.config.ts and the runtime client
+// connects through the pg driver adapter (see src/lib/prisma.ts).
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum PlanTier {
+  FREE
+  PRO
+  BUSINESS
+}
+
+enum JurisdictionLevel {
+  FEDERAL
+  STATE
+  PROVINCE
+  TERRITORY
+  COUNTY
+  MUNICIPAL
+}
+
+enum PolicyStatus {
+  IN_FORCE
+  PROPOSED
+  PENDING_EFFECTIVE
+  AMENDED
+  REPEALED
+}
+
+enum PolicyImportance {
+  LOW
+  MODERATE
+  HIGH
+  CRITICAL
+}
+
+enum UpdateType {
+  NEW_POLICY
+  UPDATED_POLICY
+  EFFECTIVE_DATE_CHANGED
+  REQUIREMENT_CHANGED
+  DEADLINE_APPROACHING
+  REPEALED_OR_REPLACED
+}
+
+enum UpdateReviewState {
+  UNREVIEWED
+  REVIEWED
+  DISMISSED
+}
+
+enum MonitorTargetType {
+  POLICY
+  JURISDICTION
+  INDUSTRY
+  TOPIC
+}
+
+enum JurisdictionRole {
+  OPERATING
+  TARGET_EXPANSION
+}
+
+enum TaskStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  BLOCKED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum PlanSource {
+  POLICY
+  AI_ANALYSIS
+  REGULATORY_UPDATE
+  COMPARISON
+  MANUAL
+}
+
+enum ReminderKind {
+  COMPLIANCE_DEADLINE
+  PERMIT_RENEWAL
+  CERTIFICATION_RENEWAL
+  FILING_DEADLINE
+  POLICY_REVIEW
+  CUSTOM
+}
+
+enum NotificationKind {
+  REMINDER
+  POLICY_UPDATE
+  TASK
+  SYSTEM
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+}
+
+// ---------------------------------------------------------------------------
+// Identity & tenancy
+// ---------------------------------------------------------------------------
+
+model User {
+  id        String   @id // matches Supabase auth.users.id
+  email     String   @unique
+  fullName  String?
+  plan      PlanTier @default(FREE)
+  isDemo    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  businesses    Business[]
+  conversations AIConversation[]
+  reports       Report[]
+  comparisons   SavedComparison[]
+  notifications Notification[]
+}
+
+model SubscriptionPlan {
+  id            String   @id @default(cuid())
+  tier          PlanTier @unique
+  name          String
+  priceMonthly  Int // cents
+  tagline       String
+  features      String[]
+  limits        Json // { policySearches, aiQuestions, businesses, monitoredItems }
+  highlighted   Boolean  @default(false)
+  displayOrder  Int      @default(0)
+}
+
+/// A business is the tenant boundary for every compliance record.
+/// One user may own several businesses (demo profiles rely on this).
+model Business {
+  id          String  @id @default(cuid())
+  ownerId     String
+  owner       User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name        String
+  slug        String
+  description String  @default("")
+  website     String?
+  isDemo      Boolean @default(false)
+
+  // headquarters / primary location
+  country String @default("US")
+  region  String @default("") // state / province / territory code
+  city    String @default("")
+
+  sizeBand      String @default("1-10")
+  employeeCount Int    @default(1)
+  orgType       String @default("LLC")
+
+  onboardingCompleted Boolean  @default(false)
+  onboardingStep      Int      @default(0)
+  disclaimerAcceptedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile       BusinessProfile?
+  jurisdictions BusinessJurisdiction[]
+  monitored     MonitoredPolicy[]
+  saved         SavedPolicy[]
+  plans         ActionPlan[]
+  tasks         Task[]
+  reminders     Reminder[]
+  notifications Notification[]
+  conversations AIConversation[]
+  comparisons   SavedComparison[]
+  reports       Report[]
+  updateReviews PolicyUpdateReview[]
+
+  @@unique([ownerId, slug])
+  @@index([ownerId])
+}
+
+/// Structured business context captured by the onboarding survey.
+/// Everything the AI Analyst, relevance engine and risk score read lives here.
+model BusinessProfile {
+  id         String   @id @default(cuid())
+  businessId String   @unique
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  // industry
+  industryKey   String   @default("general_small_business")
+  industryLabel String   @default("General small business")
+  subIndustries String[] @default([])
+
+  // activities
+  productsSold        String[] @default([])
+  servicesProvided    String[] @default([])
+  importsProducts     Boolean  @default(false)
+  importCountries     String[] @default([])
+  employsStaff        Boolean  @default(false)
+  handlesCustomerData Boolean  @default(false)
+  physicalLocations   Boolean  @default(false)
+  sellsCrossBorder    Boolean  @default(false)
+  requiresLicenses    Boolean  @default(false)
+  regulatedIndustry   Boolean  @default(false)
+
+  // expansion
+  plansExpansion    Boolean   @default(false)
+  targetCountry     String?
+  targetRegion      String?
+  targetCity        String?
+  expansionActivity String?
+  expansionDate     DateTime?
+
+  // compliance priorities (topic keys)
+  compliancePriorities String[] @default([])
+
+  // existing workflow
+  trackingMethod    String  @default("nothing_formal")
+  hasComplianceStaff Boolean @default(false)
+  usesSpreadsheets  Boolean @default(false)
+  usesExternalTool  Boolean @default(false)
+  reviewFrequency   String  @default("rarely")
+  topConcern        String  @default("")
+
+  updatedAt DateTime @updatedAt
+}
+
+model Jurisdiction {
+  code       String            @id // e.g. US, US-CA, CA-BC, MX, US-CA-LA
+  name       String
+  country    String
+  level      JurisdictionLevel
+  parentCode String?
+  parent     Jurisdiction?     @relation("JurisdictionTree", fields: [parentCode], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  children   Jurisdiction[]    @relation("JurisdictionTree")
+
+  policies      Policy[]
+  businessLinks BusinessJurisdiction[]
+
+  @@index([country])
+}
+
+model BusinessJurisdiction {
+  id               String           @id @default(cuid())
+  businessId       String
+  business         Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  jurisdictionCode String
+  jurisdiction     Jurisdiction     @relation(fields: [jurisdictionCode], references: [code], onDelete: Cascade)
+  role             JurisdictionRole @default(OPERATING)
+
+  @@unique([businessId, jurisdictionCode, role])
+  @@index([businessId])
+}
+
+// ---------------------------------------------------------------------------
+// Regulatory corpus
+// ---------------------------------------------------------------------------
+
+model Policy {
+  id               String       @id
+  title            String
+  country          String
+  jurisdictionCode String
+  jurisdiction     Jurisdiction @relation(fields: [jurisdictionCode], references: [code], onDelete: Cascade)
+  level            JurisdictionLevel
+  agency           String
+
+  industryTags String[] @default([])
+  topicTags    String[] @default([])
+
+  status      PolicyStatus     @default(IN_FORCE)
+  importance  PolicyImportance @default(MODERATE)
+
+  publishedAt   DateTime
+  effectiveAt   DateTime
+  lastUpdatedAt DateTime
+
+  plainSummary  String
+  fullSummary   String   @default("")
+  affectedOrgs  String[] @default([])
+  requirements  Json     @default("[]") // [{ title, detail }]
+  consequences  String[] @default([])
+  deadlines     Json     @default("[]") // [{ label, date, recurrence, description }]
+
+  sourceName String
+  sourceUrl  String
+  /// True when the record is illustrative sample data rather than a synced
+  /// record from a live government source. Always surfaced in the UI.
+  isSampleData Boolean @default(true)
+
+  relatedIds String[] @default([])
+
+  versions  PolicyVersion[]
+  updates   PolicyUpdate[]
+  monitors  MonitoredPolicy[]
+  saves     SavedPolicy[]
+  plans     ActionPlan[]
+  tasks     Task[]
+  reminders Reminder[]
+
+  @@index([country])
+  @@index([jurisdictionCode])
+  @@index([status])
+}
+
+model PolicyVersion {
+  id          String   @id @default(cuid())
+  policyId    String
+  policy      Policy   @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  version     Int
+  effectiveAt DateTime
+  summary     String
+  changeNote  String   @default("")
+  createdAt   DateTime @default(now())
+
+  updates PolicyUpdate[]
+
+  @@unique([policyId, version])
+}
+
+model PolicyUpdate {
+  id          String           @id @default(cuid())
+  policyId    String
+  policy      Policy           @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  versionId   String?
+  version     PolicyVersion?   @relation(fields: [versionId], references: [id], onDelete: SetNull)
+  type        UpdateType
+  title       String
+  description String
+  importance  PolicyImportance @default(MODERATE)
+  detectedAt  DateTime         @default(now())
+
+  reviews PolicyUpdateReview[]
+
+  @@index([policyId])
+  @@index([detectedAt])
+}
+
+/// Per-business read/dismiss state for a change-feed entry.
+model PolicyUpdateReview {
+  id         String            @id @default(cuid())
+  businessId String
+  business   Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  updateId   String
+  update     PolicyUpdate      @relation(fields: [updateId], references: [id], onDelete: Cascade)
+  state      UpdateReviewState @default(UNREVIEWED)
+  updatedAt  DateTime          @updatedAt
+
+  @@unique([businessId, updateId])
+}
+
+model MonitoredPolicy {
+  id         String            @id @default(cuid())
+  businessId String
+  business   Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  targetType MonitorTargetType @default(POLICY)
+  /// Policy id when targetType = POLICY, otherwise null.
+  policyId   String?
+  policy     Policy?           @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  /// Jurisdiction code / industry key / topic key for non-policy targets.
+  targetKey  String?
+  label      String
+  active     Boolean           @default(true)
+  lastChecked DateTime         @default(now())
+  createdAt  DateTime          @default(now())
+
+  @@unique([businessId, targetType, policyId, targetKey])
+  @@index([businessId])
+}
+
+model SavedPolicy {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  policyId   String
+  policy     Policy   @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  note       String   @default("")
+  createdAt  DateTime @default(now())
+
+  @@unique([businessId, policyId])
+}
+
+// ---------------------------------------------------------------------------
+// AI Analyst
+// ---------------------------------------------------------------------------
+
+model AIConversation {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title      String   @default("New analysis")
+  policyId   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  messages AIMessage[]
+  plans    ActionPlan[]
+
+  @@index([businessId])
+}
+
+model AIMessage {
+  id             String         @id @default(cuid())
+  conversationId String
+  conversation   AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           MessageRole
+  content        String
+  /// Structured analyst payload (AnalystAnswer) for assistant messages.
+  structured     Json?
+  /// "anthropic" | "openai" | "demo"
+  provider       String         @default("demo")
+  saved          Boolean        @default(false)
+  createdAt      DateTime       @default(now())
+
+  @@index([conversationId])
+}
+
+// ---------------------------------------------------------------------------
+// Action planning
+// ---------------------------------------------------------------------------
+
+model ActionPlan {
+  id             String     @id @default(cuid())
+  businessId     String
+  business       Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  title          String
+  description    String     @default("")
+  source         PlanSource @default(MANUAL)
+  policyId       String?
+  policy         Policy?    @relation(fields: [policyId], references: [id], onDelete: SetNull)
+  conversationId String?
+  conversation   AIConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  jurisdictionCode String?
+  category       String     @default("general")
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  tasks Task[]
+
+  @@index([businessId])
+}
+
+model Task {
+  id           String       @id @default(cuid())
+  businessId   String
+  business     Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  planId       String?
+  plan         ActionPlan?  @relation(fields: [planId], references: [id], onDelete: Cascade)
+  policyId     String?
+  policy       Policy?      @relation(fields: [policyId], references: [id], onDelete: SetNull)
+  title        String
+  description  String       @default("")
+  category     String       @default("general")
+  jurisdictionCode String?
+  priority     TaskPriority @default(MEDIUM)
+  status       TaskStatus   @default(NOT_STARTED)
+  dueDate      DateTime?
+  notes        String       @default("")
+  completedAt  DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  checklist ChecklistItem[]
+  reminders Reminder[]
+
+  @@index([businessId])
+  @@index([planId])
+}
+
+model ChecklistItem {
+  id       String  @id @default(cuid())
+  taskId   String
+  task     Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  label    String
+  done     Boolean @default(false)
+  position Int     @default(0)
+
+  @@index([taskId])
+}
+
+// ---------------------------------------------------------------------------
+// Reminders & notifications
+// ---------------------------------------------------------------------------
+
+model Reminder {
+  id         String       @id @default(cuid())
+  businessId String
+  business   Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  taskId     String?
+  task       Task?        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  policyId   String?
+  policy     Policy?      @relation(fields: [policyId], references: [id], onDelete: SetNull)
+  kind       ReminderKind @default(CUSTOM)
+  title      String
+  notes      String       @default("")
+  dueDate    DateTime
+  /// Days before dueDate that the in-app notification is raised.
+  advanceDays Int         @default(7)
+  snoozedUntil DateTime?
+  dismissed  Boolean      @default(false)
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  notifications Notification[]
+
+  @@index([businessId])
+}
+
+model Notification {
+  id         String           @id @default(cuid())
+  userId     String
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessId String
+  business   Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  reminderId String?
+  reminder   Reminder?        @relation(fields: [reminderId], references: [id], onDelete: Cascade)
+  kind       NotificationKind @default(SYSTEM)
+  title      String
+  body       String           @default("")
+  href       String?
+  read       Boolean          @default(false)
+  createdAt  DateTime         @default(now())
+
+  @@index([businessId, read])
+}
+
+// ---------------------------------------------------------------------------
+// Comparison & reporting
+// ---------------------------------------------------------------------------
+
+model SavedComparison {
+  id          String   @id @default(cuid())
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  topic       String
+  activity    String   @default("")
+  jurisdictionCodes String[]
+  /// Materialised comparison rows so a saved comparison renders identically later.
+  result      Json
+  createdAt   DateTime @default(now())
+
+  @@index([businessId])
+}
+
+model Report {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title      String
+  kind       String   @default("compliance_summary")
+  /// Full snapshot of the report content at generation time.
+  payload    Json
+  createdAt  DateTime @default(now())
+
+  @@index([businessId])
+}
