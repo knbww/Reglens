@@ -32,7 +32,34 @@
   --color-info: #175cd3;
   --color-info-soft: #eaf0fc;
 
+  /*
+   * Severity ramp. Four ordered rungs — clear / watch / act / overdue — so a
+   * colour always answers "how urgent is this", never "which enum is this".
+   * Applied to data (spines, bars, dots, counts), never as a decorative fill.
+   * Ordered by lightness as well as hue so the sequence survives CVD.
+   */
+  --color-sev-clear: #1f8f63;
+  --color-sev-watch: #b8830c;
+  --color-sev-act: #cf5f1c;
+  --color-sev-over: #b32218;
+  --color-sev-clear-soft: #e8f4ee;
+  --color-sev-watch-soft: #fbf2df;
+  --color-sev-act-soft: #fbecdf;
+  --color-sev-over-soft: #fbe7e5;
+
   --radius-card: 0.75rem;
+
+  /*
+   * Type scale. Only the top of the scale moved: the page title had 9px of
+   * range over body copy, which is not enough for an application to have a
+   * beginning. Small sizes are unchanged, so density is unaffected.
+   */
+  --text-display: 2rem;
+  --text-display--line-height: 1.1;
+  --text-display--letter-spacing: -0.025em;
+  --text-title: 1.25rem;
+  --text-title--line-height: 1.25;
+  --text-title--letter-spacing: -0.018em;
 
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
@@ -40,6 +67,20 @@
 
 :root {
   color-scheme: light;
+
+  /*
+   * One easing and one duration for every navigation transition, so the rail,
+   * its labels, the active indicator and the sub-item disclosure read as a
+   * single object moving rather than four things animating near each other.
+   */
+  --ease-out: cubic-bezier(0.32, 0.72, 0, 1);
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
+
+  /* The navigation was built against these names; kept as aliases. */
+  --ease-nav: var(--ease-out);
+  --dur-nav: var(--dur-base);
 }
 
 html {
@@ -79,6 +120,149 @@ body {
   animation: reglens-pulse 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   background-color: var(--color-line);
   border-radius: 0.375rem;
+}
+
+/* --- Form controls ---------------------------------------------------------- */
+
+/*
+ * Native <select> kept deliberately — it beats any custom listbox on mobile and
+ * for keyboard users — but stripped of its OS chrome and given our own
+ * indicator, which is the part that read as untouched.
+ */
+.field-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%2377839a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.75 6 7.75 9 4.75'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  background-size: 0.75rem;
+}
+
+.field-select::-ms-expand {
+  display: none;
+}
+
+/* --- Entrance motion -------------------------------------------------------- */
+
+/*
+ * One entrance, used for every region that appears on load. `--rise-i` staggers
+ * siblings so a screen assembles top-down instead of flashing in at once. The
+ * delay is capped so a long list never keeps the reader waiting.
+ */
+@keyframes reglens-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rise {
+  animation: reglens-rise var(--dur-slow) var(--ease-out) both;
+  animation-delay: calc(min(var(--rise-i, 0), 8) * 40ms);
+}
+
+/* Rows in a feed settle in from the leading edge rather than from below. */
+@keyframes reglens-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.slide-in {
+  animation: reglens-slide-in var(--dur-base) var(--ease-out) both;
+  animation-delay: calc(min(var(--rise-i, 0), 10) * 30ms);
+}
+
+/* Cards lift very slightly on hover — enough to read as interactive. */
+.lift {
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out),
+    transform var(--dur-base) var(--ease-out);
+}
+
+.lift:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px -8px rgb(16 24 40 / 0.18);
+}
+
+/* Bars and arcs grow to their value on first paint. */
+@keyframes reglens-grow-x {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: none;
+  }
+}
+
+.grow-x {
+  transform-origin: left center;
+  animation: reglens-grow-x var(--dur-slow) var(--ease-out) both;
+  animation-delay: calc(min(var(--rise-i, 0), 8) * 40ms);
+}
+
+/* --- Navigation motion ----------------------------------------------------- */
+
+.nav-motion {
+  transition-timing-function: var(--ease-nav);
+  transition-duration: var(--dur-nav);
+}
+
+/* Counts are keyed on their value, so a changed count remounts and replays
+   this — the number draws the eye exactly when it has news. */
+@keyframes reglens-count-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.86);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.nav-count {
+  animation: reglens-count-in 260ms var(--ease-nav);
+}
+
+/* The rail floating out over the page on hover. */
+@keyframes reglens-rail-out {
+  from {
+    opacity: 0.85;
+    transform: translateX(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.nav-rail-out {
+  animation: reglens-rail-out var(--dur-nav) var(--ease-nav);
+}
+
+/*
+ * Honour the OS setting globally rather than per-component: any transition or
+ * animation added later is covered by default instead of opting in.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* --- Print / PDF layout for reports --------------------------------------- */

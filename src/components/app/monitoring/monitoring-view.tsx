@@ -1,17 +1,19 @@
 "use client";
 
 import type { MonitorTargetType, PolicyImportance, UpdateType } from "@prisma/client";
-import { Check, ListPlus, Plus, RefreshCw, Sparkles, Trash2, X } from "lucide-react";
+import { Check, ListPlus, MoreHorizontal, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Select } from "@/components/ui/field";
 import { EmptyState } from "@/components/ui/misc";
-import { ImportanceBadge, RelevanceBadge, UpdateTypeBadge } from "@/components/ui/status";
+import { Meter, Spine } from "@/components/ui/severity";
+import { UpdateTypeBadge } from "@/components/ui/status";
+import { severityFromImportance } from "@/lib/severity";
 import { JURISDICTIONS } from "@/data/jurisdictions";
 import {
   addMonitorTarget,
@@ -83,6 +85,20 @@ export function MonitoringView({
     type: "TOPIC",
     key: COMPLIANCE_TOPICS[0].key,
   });
+  /** Which row's overflow menu is open — only ever one at a time. */
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!menuFor) return;
+    const close = () => setMenuFor(null);
+    const onKey = (event: KeyboardEvent) => event.key === "Escape" && setMenuFor(null);
+    document.addEventListener("click", close);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("click", close);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuFor]);
 
   function mutate(fn: () => Promise<unknown>) {
     run(async () => {
@@ -185,18 +201,32 @@ export function MonitoringView({
             }
           />
         ) : (
-          <ul className="space-y-3">
-            {visible.map((update) => (
-              <li key={update.id}>
+          <ul className="space-y-2.5">
+            {visible.map((update, index) => (
+              <li key={update.id} style={{ ["--rise-i" as string]: index }} className="slide-in">
                 <Card
                   id={`update-${update.id}`}
-                  className={cn(update.id === highlightUpdateId && "border-brand ring-1 ring-brand-ring")}
+                  className={cn(
+                    "lift",
+                    update.id === highlightUpdateId && "border-brand ring-1 ring-brand-ring",
+                  )}
                 >
-                  <CardContent className="space-y-3">
-                    <div className="flex flex-wrap items-center gap-1.5">
+                  {/*
+                    Row grammar: severity is the spine, relevance is the meter,
+                    and the single remaining chip says what kind of change it is.
+                    Three competing pills become one word and two silent signals.
+                  */}
+                  <Spine
+                    severity={severityFromImportance(update.importance)}
+                    label={`${update.importance.toLowerCase()} importance`}
+                    className="space-y-3 p-5 pl-6"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
                       <UpdateTypeBadge type={update.type} />
-                      <ImportanceBadge importance={update.importance} />
-                      <RelevanceBadge band={update.relevanceBand} score={update.relevanceScore} />
+                      <Meter
+                        value={update.relevanceScore}
+                        label={`Relevance to this business: ${update.relevanceScore} of 100`}
+                      />
                       {update.reviewState === "REVIEWED" ? <Badge tone="success">Reviewed</Badge> : null}
                       {update.reviewState === "DISMISSED" ? <Badge tone="neutral">Dismissed</Badge> : null}
                       <span className="ml-auto text-xs text-ink-muted">
@@ -205,34 +235,38 @@ export function MonitoringView({
                     </div>
 
                     <div>
-                      <p className="text-sm font-semibold text-ink">{update.title}</p>
+                      <p className="text-[15px] font-semibold tracking-[-0.006em] text-ink">
+                        {update.title}
+                      </p>
                       <p className="mt-1 text-sm leading-6 text-ink-soft">{update.description}</p>
                     </div>
 
                     <p className="text-xs text-ink-muted">
-                      <Link href={`/policies/${update.policyId}`} className="font-medium text-brand hover:underline">
+                      <Link
+                        href={`/policies/${update.policyId}`}
+                        className="font-medium text-brand hover:underline"
+                      >
                         {update.policyTitle}
                       </Link>{" "}
                       · {update.jurisdiction} · {update.policyAgency}
                     </p>
 
-                    <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
-                      <Link
-                        href={`/policies/${update.policyId}`}
-                        className="rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-surface-muted"
-                      >
-                        Open the update
-                      </Link>
-                      <Link
-                        href={`/analyst?policy=${update.policyId}`}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-surface-muted"
-                      >
-                        <Sparkles className="size-3.5" />
-                        Ask the Analyst
-                      </Link>
+                    {/* One primary — the action that moves the risk score. */}
+                    <div className="flex flex-wrap items-center gap-1.5 border-t border-line pt-3">
+                      {update.reviewState !== "REVIEWED" ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={pending}
+                          onClick={() => mutate(() => setUpdateReviewState(update.id, "REVIEWED"))}
+                        >
+                          <Check className="size-3.5" />
+                          Mark reviewed
+                        </Button>
+                      ) : null}
                       <Button
                         type="button"
-                        variant="secondary"
+                        variant="ghost"
                         size="sm"
                         disabled={pending}
                         onClick={() =>
@@ -249,42 +283,67 @@ export function MonitoringView({
                         <ListPlus className="size-3.5" />
                         Create task
                       </Button>
-                      {update.reviewState !== "REVIEWED" ? (
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          size="sm"
-                          disabled={pending}
-                          onClick={() => mutate(() => setUpdateReviewState(update.id, "REVIEWED"))}
-                        >
-                          <Check className="size-3.5" />
-                          Mark reviewed
-                        </Button>
-                      ) : null}
-                      {update.reviewState !== "DISMISSED" ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          disabled={pending}
-                          onClick={() => mutate(() => setUpdateReviewState(update.id, "DISMISSED"))}
-                        >
-                          <X className="size-3.5" />
-                          Dismiss
-                        </Button>
-                      ) : (
+                      <Link
+                        href={`/analyst?policy=${update.policyId}`}
+                        className={buttonVariants({ variant: "ghost", size: "sm" })}
+                      >
+                        <Sparkles className="size-3.5" />
+                        Ask the Analyst
+                      </Link>
+
+                      {/* Contained so the document-level close handler does not
+                          swallow the very click that opens the menu. */}
+                      <div className="relative ml-auto" onClick={(event) => event.stopPropagation()}>
                         <Button
                           type="button"
                           variant="ghost"
                           size="sm"
-                          disabled={pending}
-                          onClick={() => mutate(() => setUpdateReviewState(update.id, "UNREVIEWED"))}
+                          aria-haspopup="true"
+                          aria-expanded={menuFor === update.id}
+                          aria-label="More actions"
+                          onClick={() => setMenuFor((id) => (id === update.id ? null : update.id))}
                         >
-                          Restore
+                          <MoreHorizontal className="size-4" />
                         </Button>
-                      )}
+                        {menuFor === update.id ? (
+                          <div className="nav-rail-out absolute right-0 top-full z-30 mt-1 w-52 rounded-lg border border-line bg-surface py-1 shadow-lg">
+                            <Link
+                              href={`/policies/${update.policyId}`}
+                              onClick={() => setMenuFor(null)}
+                              className="block px-3 py-2 text-sm text-ink-soft transition-colors hover:bg-surface-muted hover:text-ink"
+                            >
+                              Open the update
+                            </Link>
+                            {update.reviewState !== "DISMISSED" ? (
+                              <button
+                                type="button"
+                                disabled={pending}
+                                onClick={() => {
+                                  setMenuFor(null);
+                                  mutate(() => setUpdateReviewState(update.id, "DISMISSED"));
+                                }}
+                                className="block w-full px-3 py-2 text-left text-sm text-ink-soft transition-colors hover:bg-surface-muted hover:text-ink disabled:opacity-60"
+                              >
+                                Dismiss
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={pending}
+                                onClick={() => {
+                                  setMenuFor(null);
+                                  mutate(() => setUpdateReviewState(update.id, "UNREVIEWED"));
+                                }}
+                                className="block w-full px-3 py-2 text-left text-sm text-ink-soft transition-colors hover:bg-surface-muted hover:text-ink disabled:opacity-60"
+                              >
+                                Restore
+                              </button>
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
-                  </CardContent>
+                  </Spine>
                 </Card>
               </li>
             ))}
@@ -369,62 +428,68 @@ export function MonitoringView({
               </p>
             ) : (
               <ul className="space-y-2">
-                {monitors.map((monitor) => (
-                  <li key={monitor.id} className="group rounded-lg border border-line p-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <Badge tone="neutral">{TARGET_LABEL[monitor.targetType]}</Badge>
-                        {monitor.policyId ? (
-                          <Link
-                            href={`/policies/${monitor.policyId}`}
-                            className="mt-1.5 block text-xs font-medium text-brand hover:underline"
-                          >
-                            {monitor.label}
-                          </Link>
-                        ) : (
-                          <p className="mt-1.5 text-xs font-medium text-ink">{monitor.label}</p>
-                        )}
+                {monitors.map((monitor, index) => (
+                  <li
+                    key={monitor.id}
+                    style={{ ["--rise-i" as string]: index }}
+                    className="slide-in group rounded-lg border border-line"
+                  >
+                    {/* Same grammar as the feed: severity on the edge, relevance
+                        as a meter, and the label grid that repeated three rows
+                        per item collapsed to one line of dated text. */}
+                    <Spine
+                      severity={monitor.importance ? severityFromImportance(monitor.importance) : "clear"}
+                      label={
+                        monitor.importance ? `${monitor.importance.toLowerCase()} importance` : "monitored"
+                      }
+                      className="p-3 pl-4"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <Badge tone="neutral">{TARGET_LABEL[monitor.targetType]}</Badge>
+                          {monitor.policyId ? (
+                            <Link
+                              href={`/policies/${monitor.policyId}`}
+                              className="mt-1.5 block text-xs font-medium text-brand hover:underline"
+                            >
+                              {monitor.label}
+                            </Link>
+                          ) : (
+                            <p className="mt-1.5 text-xs font-medium text-ink">{monitor.label}</p>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          aria-label={`Stop monitoring ${monitor.label}`}
+                          disabled={pending}
+                          onClick={() => mutate(() => removeMonitor(monitor.id))}
+                          className="rounded p-1 text-ink-muted opacity-0 transition-opacity hover:text-danger focus-visible:opacity-100 group-hover:opacity-100"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        aria-label={`Stop monitoring ${monitor.label}`}
-                        disabled={pending}
-                        onClick={() => mutate(() => removeMonitor(monitor.id))}
-                        className="rounded p-1 text-ink-muted opacity-0 hover:text-danger focus-visible:opacity-100 group-hover:opacity-100"
-                      >
-                        <Trash2 className="size-3.5" />
-                      </button>
-                    </div>
 
-                    <dl className="mt-2 space-y-0.5 text-[11px] text-ink-muted">
-                      <div className="flex justify-between gap-2">
-                        <dt>Last checked</dt>
-                        <dd className="tabular">{formatDate(monitor.lastChecked)}</dd>
-                      </div>
-                      <div className="flex justify-between gap-2">
-                        <dt>Latest change</dt>
-                        <dd className="tabular">
-                          {monitor.latestChangeAt ? formatDate(monitor.latestChangeAt) : "None detected"}
-                        </dd>
-                      </div>
-                      <div className="flex justify-between gap-2">
-                        <dt>Status</dt>
-                        <dd className="text-success">Active</dd>
-                      </div>
-                    </dl>
-
-                    {monitor.latestChangeTitle ? (
-                      <p className="mt-1.5 line-clamp-2 text-[11px] leading-4 text-ink-soft">
-                        {monitor.latestChangeTitle}
+                      <p className="tabular mt-1.5 text-[11px] text-ink-muted">
+                        checked {formatDate(monitor.lastChecked)}
+                        {monitor.latestChangeAt
+                          ? ` · changed ${formatDate(monitor.latestChangeAt)}`
+                          : " · no change detected"}
                       </p>
-                    ) : null}
 
-                    <div className="mt-1.5 flex flex-wrap gap-1">
-                      {monitor.importance ? <ImportanceBadge importance={monitor.importance} /> : null}
-                      {monitor.relevanceBand ? (
-                        <RelevanceBadge band={monitor.relevanceBand} score={monitor.relevanceScore ?? undefined} />
+                      {monitor.latestChangeTitle ? (
+                        <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-ink-soft">
+                          {monitor.latestChangeTitle}
+                        </p>
                       ) : null}
-                    </div>
+
+                      {monitor.relevanceScore !== null ? (
+                        <Meter
+                          value={monitor.relevanceScore}
+                          label={`Relevance ${monitor.relevanceScore} of 100`}
+                          className="mt-1.5"
+                        />
+                      ) : null}
+                    </Spine>
                   </li>
                 ))}
               </ul>

@@ -8,12 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { EmptyState, PageHeader } from "@/components/ui/misc";
-import {
-  ImportanceBadge,
-  PolicyStatusBadge,
-  RelevanceBadge,
-  SampleDataBadge,
-} from "@/components/ui/status";
+import { Meter, Spine } from "@/components/ui/severity";
+import { PolicyStatusBadge, SampleDataBadge } from "@/components/ui/status";
+import { severityFromImportance } from "@/lib/severity";
 import { jurisdictionName } from "@/data/jurisdictions";
 import { formatDate } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
@@ -156,15 +153,19 @@ export default async function PoliciesPage({ searchParams }: { searchParams: Sea
             </p>
           ) : null}
 
-          <ul className="space-y-3">
-            {ranked.map((policy) => (
-              <li key={policy.id}>
-                <Card className="transition-colors hover:border-brand-ring">
-                  <CardContent>
+          <ul className="space-y-2.5">
+            {ranked.map((policy, index) => (
+              <li key={policy.id} style={{ ["--rise-i" as string]: index }} className="slide-in">
+                <Card className="lift hover:border-brand-ring">
+                  <Spine
+                    severity={severityFromImportance(policy.importance)}
+                    label={`${policy.importance.toLowerCase()} importance`}
+                    className="px-5 py-4 pl-6"
+                  >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <Link href={`/policies/${policy.id}`} className="group">
-                          <h2 className="text-sm font-semibold leading-5 text-ink group-hover:text-brand">
+                          <h2 className="text-[15px] font-semibold leading-5 tracking-[-0.006em] text-ink group-hover:text-brand">
                             {policy.title}
                           </h2>
                         </Link>
@@ -172,27 +173,37 @@ export default async function PoliciesPage({ searchParams }: { searchParams: Sea
                           {jurisdictionName(policy.jurisdictionCode)} · {policy.agency}
                         </p>
                       </div>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <RelevanceBadge band={policy.relevance.band} score={policy.relevance.score} />
+                      <div className="flex shrink-0 flex-wrap items-center gap-2">
+                        <Meter
+                          value={policy.relevance.score}
+                          label={`Relevance to ${business.name}: ${policy.relevance.score} of 100`}
+                        />
                         <PolicyStatusBadge status={policy.status} />
-                        <ImportanceBadge importance={policy.importance} />
                       </div>
                     </div>
 
-                    <p className="mt-2.5 line-clamp-3 text-sm leading-6 text-ink-soft">{policy.plainSummary}</p>
+                    {/* The reason this policy is in front of you, promoted from
+                        the last line of the card to directly under the title. */}
+                    <p className="mt-1.5 text-xs font-medium text-ink-soft">
+                      {policy.relevance.reasons[0]}
+                    </p>
+
+                    <p className="mt-2 line-clamp-3 text-sm leading-6 text-ink-soft">
+                      {policy.plainSummary}
+                    </p>
 
                     <dl className="mt-3 grid gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2 lg:grid-cols-4">
                       <div>
                         <dt className="text-ink-muted">Published</dt>
-                        <dd className="text-ink-soft tabular">{formatDate(policy.publishedAt)}</dd>
+                        <dd className="tabular text-ink-soft">{formatDate(policy.publishedAt)}</dd>
                       </div>
                       <div>
                         <dt className="text-ink-muted">Effective</dt>
-                        <dd className="text-ink-soft tabular">{formatDate(policy.effectiveAt)}</dd>
+                        <dd className="tabular text-ink-soft">{formatDate(policy.effectiveAt)}</dd>
                       </div>
                       <div>
                         <dt className="text-ink-muted">Last updated</dt>
-                        <dd className="text-ink-soft tabular">{formatDate(policy.lastUpdatedAt)}</dd>
+                        <dd className="tabular text-ink-soft">{formatDate(policy.lastUpdatedAt)}</dd>
                       </div>
                       <div>
                         <dt className="text-ink-muted">Who may be affected</dt>
@@ -224,8 +235,12 @@ export default async function PoliciesPage({ searchParams }: { searchParams: Sea
                       </Link>
                     </div>
 
-                    <p className="mt-2 text-xs text-ink-muted">{policy.relevance.reasons.join(" · ")}</p>
-                  </CardContent>
+                    {policy.relevance.reasons.length > 1 ? (
+                      <p className="mt-2 text-xs text-ink-muted">
+                        {policy.relevance.reasons.slice(1).join(" · ")}
+                      </p>
+                    ) : null}
+                  </Spine>
                 </Card>
               </li>
             ))}

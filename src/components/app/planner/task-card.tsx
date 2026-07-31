@@ -9,7 +9,9 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox, Input, Select, Textarea } from "@/components/ui/field";
 import { ProgressBar } from "@/components/ui/misc";
-import { DueBadge, PriorityBadge, TaskStatusBadge } from "@/components/ui/status";
+import { Spine } from "@/components/ui/severity";
+import { TaskStatusBadge } from "@/components/ui/status";
+import { SEVERITY_TEXT, severityFromDays, severityFromPriority } from "@/lib/severity";
 import { jurisdictionName } from "@/data/jurisdictions";
 import {
   addChecklistItem,
@@ -43,7 +45,16 @@ export type PlannerTask = {
 const STATUSES: TaskStatus[] = ["NOT_STARTED", "IN_PROGRESS", "COMPLETED", "BLOCKED"];
 const PRIORITIES: TaskPriority[] = ["LOW", "MEDIUM", "HIGH", "URGENT"];
 
-export function TaskCard({ task, defaultOpen = false }: { task: PlannerTask; defaultOpen?: boolean }) {
+export function TaskCard({
+  task,
+  defaultOpen = false,
+  showPlan = false,
+}: {
+  task: PlannerTask;
+  defaultOpen?: boolean;
+  /** Only true in the flat list, where the plan heading is not above the row. */
+  showPlan?: boolean;
+}) {
   const router = useRouter();
   const { busy: pending, run } = useAction();
   const [open, setOpen] = useState(defaultOpen);
@@ -52,6 +63,7 @@ export function TaskCard({ task, defaultOpen = false }: { task: PlannerTask; def
   const [notesSaved, setNotesSaved] = useState(false);
   const [reminderMessage, setReminderMessage] = useState<string | null>(null);
 
+  const dueDays = daysUntil(task.dueDate);
   const done = task.checklist.filter((c) => c.done).length;
   const progress = task.checklist.length === 0 ? (task.status === "COMPLETED" ? 100 : 0) : Math.round((done / task.checklist.length) * 100);
 
@@ -62,15 +74,30 @@ export function TaskCard({ task, defaultOpen = false }: { task: PlannerTask; def
     });
   }
 
+  // Severity comes from the deadline first — a task with a date is judged by
+  // that date; priority only speaks when there is no date to speak for it.
+  const severity =
+    task.status === "COMPLETED"
+      ? "clear"
+      : task.status === "BLOCKED"
+        ? "over"
+        : task.dueDate
+          ? severityFromDays(daysUntil(task.dueDate))
+          : severityFromPriority(task.priority);
+
   return (
     <div
       id={`task-${task.id}`}
       className={cn(
-        "rounded-card border bg-surface transition-colors",
-        task.status === "COMPLETED" ? "border-line opacity-80" : "border-line",
+        "lift rounded-card border bg-surface",
+        task.status === "COMPLETED" ? "border-line opacity-70" : "border-line",
       )}
     >
-      <div className="flex items-start gap-3 p-4">
+      <Spine
+        severity={severity}
+        label={`${task.priority.toLowerCase()} priority`}
+        className="flex items-start gap-3 p-4 pl-5"
+      >
         <Checkbox
           checked={task.status === "COMPLETED"}
           aria-label={`Mark ${task.title} complete`}
@@ -98,15 +125,26 @@ export function TaskCard({ task, defaultOpen = false }: { task: PlannerTask; def
                 {task.title}
               </p>
             </button>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <PriorityBadge priority={task.priority} />
-              <TaskStatusBadge status={task.status} />
-              <DueBadge days={daysUntil(task.dueDate)} />
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              {/* Only the states worth interrupting for keep a pill. Priority
+                  is the spine now, and the deadline is a coloured figure. */}
+              {task.status === "BLOCKED" || task.status === "IN_PROGRESS" ? (
+                <TaskStatusBadge status={task.status} />
+              ) : null}
+              {dueDays !== null && task.status !== "COMPLETED" ? (
+                <span className={cn("tabular text-xs font-medium", SEVERITY_TEXT[severity])}>
+                  {dueDays < 0
+                    ? `${Math.abs(dueDays)}d overdue`
+                    : dueDays === 0
+                      ? "due today"
+                      : `${dueDays}d left`}
+                </span>
+              ) : null}
               <button
                 type="button"
                 onClick={() => setOpen((v) => !v)}
                 aria-label={open ? "Collapse task" : "Expand task"}
-                className="rounded p-1 text-ink-muted hover:bg-surface-muted hover:text-ink"
+                className="rounded p-1 text-ink-muted transition-colors hover:bg-surface-muted hover:text-ink"
               >
                 <ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} />
               </button>
@@ -114,12 +152,14 @@ export function TaskCard({ task, defaultOpen = false }: { task: PlannerTask; def
           </div>
 
           <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-muted">
-            {task.planTitle ? <span>{task.planTitle}</span> : null}
-            {task.jurisdictionCode ? <span>· {jurisdictionName(task.jurisdictionCode)}</span> : null}
-            {task.dueDate ? <span>· due {formatDate(task.dueDate)}</span> : null}
+            {/* The plan name is the heading this row already sits under — it is
+                only repeated when the list is flat and that context is gone. */}
+            {showPlan && task.planTitle ? <span>{task.planTitle}</span> : null}
+            {task.jurisdictionCode ? <span>{jurisdictionName(task.jurisdictionCode)}</span> : null}
+            {task.dueDate ? <span>due {formatDate(task.dueDate)}</span> : null}
             {task.checklist.length > 0 ? (
               <span className="tabular">
-                · {done}/{task.checklist.length} steps
+                {done}/{task.checklist.length} steps
               </span>
             ) : null}
           </p>
@@ -133,7 +173,7 @@ export function TaskCard({ task, defaultOpen = false }: { task: PlannerTask; def
             />
           ) : null}
         </div>
-      </div>
+      </Spine>
 
       {open ? (
         <div className="space-y-4 border-t border-line px-4 py-4">

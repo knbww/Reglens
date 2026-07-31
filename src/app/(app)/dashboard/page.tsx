@@ -1,45 +1,65 @@
-import {
-  ArrowRight,
-  CalendarClock,
-  ListChecks,
-  MapPin,
-  Plus,
-  Radar,
-  Search,
-  Sparkles,
-  SplitSquareHorizontal,
-  UserCog,
-} from "lucide-react";
+import { ArrowRight, CalendarClock, MapPin, Radar, Search, Sparkles } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { DeadlineList, type DeadlineEntry } from "@/components/app/deadline-list";
 import { GenerateReportButton } from "@/components/app/generate-report-button";
 import { RiskCard } from "@/components/app/risk-card";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { EmptyState, PageHeader, ProgressBar, Stat } from "@/components/ui/misc";
-import {
-  DueBadge,
-  ImportanceBadge,
-  RelevanceBadge,
-  UpdateTypeBadge,
-} from "@/components/ui/status";
+import { Strata, type StrataColumn } from "@/components/ui/chart";
+import { EmptyState, PageHeader, ProgressBar } from "@/components/ui/misc";
+import { Meter, Spine } from "@/components/ui/severity";
+import { UpdateTypeBadge } from "@/components/ui/status";
 import { jurisdictionName } from "@/data/jurisdictions";
-import { daysUntil, formatDate, isFuture, relativeTime } from "@/lib/format";
+import { daysUntil, isFuture, relativeTime } from "@/lib/format";
 import { getBusinessSnapshot, getRecommendedPolicies } from "@/lib/queries";
 import { requireActiveBusiness } from "@/lib/session";
+import {
+  SEVERITY_BAR,
+  SEVERITY_TEXT,
+  severityFromDays,
+  severityFromImportance,
+  type Severity,
+} from "@/lib/severity";
 import { countryName, topicLabel } from "@/lib/taxonomy";
+import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
-const QUICK_ACTIONS = [
-  { href: "/policies", label: "Search policies", icon: Search },
-  { href: "/analyst", label: "Ask AI Analyst", icon: Sparkles },
-  { href: "/planner?new=1", label: "Add a task", icon: Plus },
-  { href: "/compare", label: "Compare jurisdictions", icon: SplitSquareHorizontal },
-  { href: "/profile", label: "Update business profile", icon: UserCog },
-];
+/** Federal rules sit above each state or province — so the picture is a stack. */
+function buildStrata(
+  business: Awaited<ReturnType<typeof requireActiveBusiness>>["business"],
+  trackedByJurisdiction: Map<string, number>,
+): StrataColumn[] {
+  const byCountry = new Map<string, StrataColumn>();
+
+  for (const link of business.jurisdictions) {
+    const country = link.jurisdictionCode.split("-")[0];
+    const column =
+      byCountry.get(country) ??
+      ({ country: countryName(country), total: 0, layers: [] } as StrataColumn);
+
+    const isFederal = !link.jurisdictionCode.includes("-");
+    const count = trackedByJurisdiction.get(link.jurisdictionCode) ?? 0;
+
+    column.layers.push({
+      name: isFederal ? "Federal" : jurisdictionName(link.jurisdictionCode),
+      count,
+      severity: count === 0 ? "clear" : count >= 5 ? "over" : count >= 3 ? "act" : "watch",
+      planned: link.role === "TARGET_EXPANSION",
+    });
+    column.total += count;
+    byCountry.set(country, column);
+  }
+
+  // Federal first, then the sub-national layers beneath it.
+  for (const column of byCountry.values()) {
+    column.layers.sort((a, b) => Number(b.name === "Federal") - Number(a.name === "Federal"));
+  }
+  return Array.from(byCountry.values()).slice(0, 3);
+}
 
 export default async function DashboardPage() {
   const { business } = await requireActiveBusiness();
@@ -47,19 +67,48 @@ export default async function DashboardPage() {
   const recommended = await getRecommendedPolicies(business, 6);
 
   const openTasks = snapshot.tasks.filter((t) => t.status !== "COMPLETED");
-  const overdueTasks = openTasks.filter((t) => {
+  const overdueTasks = openTasks.filter((t) => (daysUntil(t.dueDate) ?? 999) < 0);
+  const dueSoonTasks = openTasks.filter((t) => {
     const d = daysUntil(t.dueDate);
-    return d !== null && d < 0;
+    return d !== null && d >= 0 && d <= 30;
   });
-  const activeReminders = snapshot.reminders.filter((r) => !r.dismissed && !isFuture(r.snoozedUntil));
-  const upcoming = activeReminders
-    .filter((r) => {
-      const d = daysUntil(r.dueDate);
-      return d !== null && d >= -30;
-    })
-    .slice(0, 6);
+  const activeReminders = snapshot.reminders.filter(
+    (r) => !r.dismissed && !isFuture(r.snoozedUntil),
+  );
   const unreviewed = snapshot.updates.filter((u) => u.reviewState === "UNREVIEWED");
-  const operatingCount = business.jurisdictions.filter((j) => j.role === "OPERATING").length;
+
+  // Tasks and reminders are the same pressure, so they share one dated list.
+  const deadlines: DeadlineEntry[] = [
+    ...openTasks
+      .filter((t) => t.dueDate)
+      .map((t) => ({
+        id: `task-${t.id}`,
+        title: t.title,
+        date: t.dueDate!,
+        context: t.policy?.title ?? "Compliance task",
+        href: `/planner?task=${t.id}`,
+      })),
+    ...activeReminders.map((r) => ({
+      id: `reminder-${r.id}`,
+      title: r.title,
+      date: r.dueDate,
+      context: r.policy?.title ?? "Reminder",
+      href: "/reminders",
+    })),
+  ];
+
+  // Everything RegLens is tracking, attributed to the level it comes from:
+  // open work, detected change, and explicit jurisdiction monitors.
+  const trackedByJurisdiction = new Map<string, number>();
+  const track = (code: string | null | undefined) => {
+    if (code) trackedByJurisdiction.set(code, (trackedByJurisdiction.get(code) ?? 0) + 1);
+  };
+  for (const task of openTasks) track(task.jurisdictionCode);
+  for (const update of snapshot.updates) track(update.policy.jurisdictionCode);
+  for (const monitor of snapshot.monitors) {
+    if (monitor.targetType === "JURISDICTION") track(monitor.targetKey);
+  }
+  const strata = buildStrata(business, trackedByJurisdiction);
 
   // Recommended actions blend overdue work, unreviewed change and profile gaps.
   const recommendations: {
@@ -67,7 +116,7 @@ export default async function DashboardPage() {
     body: string;
     href: string;
     cta: string;
-    tone: "danger" | "warning" | "brand";
+    severity: Severity;
   }[] = [];
 
   if (overdueTasks[0]) {
@@ -76,7 +125,7 @@ export default async function DashboardPage() {
       body: overdueTasks[0].description || "This task passed its planned date.",
       href: `/planner?task=${overdueTasks[0].id}`,
       cta: "Open the task",
-      tone: "danger",
+      severity: "over",
     });
   }
   if (unreviewed[0]) {
@@ -85,17 +134,17 @@ export default async function DashboardPage() {
       body: unreviewed[0].description,
       href: `/monitoring?update=${unreviewed[0].id}`,
       cta: "Review the change",
-      tone: "warning",
+      severity: severityFromImportance(unreviewed[0].importance),
     });
   }
-  const nextDeadline = upcoming.find((r) => (daysUntil(r.dueDate) ?? 999) >= 0);
+  const nextDeadline = activeReminders.find((r) => (daysUntil(r.dueDate) ?? 999) >= 0);
   if (nextDeadline) {
     recommendations.push({
       title: `Prepare for ${nextDeadline.title}`,
       body: nextDeadline.notes || "An approaching date on your compliance calendar.",
       href: "/reminders",
       cta: "Open reminders",
-      tone: "warning",
+      severity: severityFromDays(daysUntil(nextDeadline.dueDate)),
     });
   }
   const topPolicy = recommended.find(
@@ -107,16 +156,18 @@ export default async function DashboardPage() {
       body: topPolicy.plainSummary,
       href: `/policies/${topPolicy.id}`,
       cta: "Open the policy",
-      tone: "brand",
+      severity: "watch",
     });
   }
   if (business.profile?.plansExpansion && business.profile.targetRegion) {
     recommendations.push({
       title: `Compare requirements before entering ${jurisdictionName(business.profile.targetRegion)}`,
-      body: business.profile.expansionActivity ?? "Check how requirements differ before you start operating.",
+      body:
+        business.profile.expansionActivity ??
+        "Check how requirements differ before you start operating.",
       href: `/compare?target=${business.profile.targetRegion}`,
       cta: "Open comparison",
-      tone: "brand",
+      severity: "watch",
     });
   }
   if (snapshot.completion.percent < 100) {
@@ -125,12 +176,24 @@ export default async function DashboardPage() {
       body: `Still missing: ${snapshot.completion.missing.slice(0, 3).join(", ")}. RegLens ranks requirements from these answers.`,
       href: "/profile",
       cta: "Update profile",
-      tone: "brand",
+      severity: "clear",
     });
   }
 
+  const pulse: { label: string; value: number; severity: Severity; href: string }[] = [
+    { label: "Overdue", value: overdueTasks.length, severity: "over", href: "/planner" },
+    { label: "Due in 30 days", value: dueSoonTasks.length, severity: "act", href: "/reminders" },
+    { label: "Awaiting review", value: unreviewed.length, severity: "watch", href: "/monitoring" },
+    {
+      label: "On track",
+      value: Math.max(0, openTasks.length - overdueTasks.length - dueSoonTasks.length),
+      severity: "clear",
+      href: "/planner",
+    },
+  ];
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <PageHeader
         title={business.name}
         description={business.description}
@@ -148,7 +211,10 @@ export default async function DashboardPage() {
         }
       />
 
-      <div className="flex flex-wrap items-center gap-2 text-sm text-ink-muted">
+      <div
+        style={{ ["--rise-i" as string]: 1 }}
+        className="rise flex flex-wrap items-center gap-2 text-sm text-ink-muted"
+      >
         <span className="inline-flex items-center gap-1.5">
           <MapPin className="size-3.5" />
           {[business.city, jurisdictionName(business.region), countryName(business.country)]
@@ -158,6 +224,11 @@ export default async function DashboardPage() {
         <span aria-hidden>·</span>
         <Badge tone="brand">{business.profile?.industryLabel ?? "Industry not set"}</Badge>
         {business.isDemo ? <Badge tone="neutral">Demo business</Badge> : null}
+        {business.profile?.compliancePriorities.slice(0, 3).map((topic) => (
+          <Link key={topic} href={`/policies?topic=${topic}`}>
+            <Badge tone="neutral">{topicLabel(topic)}</Badge>
+          </Link>
+        ))}
         <span className="ml-auto flex items-center gap-2">
           <span className="text-xs">Profile {snapshot.completion.percent}% complete</span>
           <ProgressBar
@@ -169,163 +240,110 @@ export default async function DashboardPage() {
         </span>
       </div>
 
+      {/* ------------------------------------------------------- Risk hero */}
+      <RiskCard risk={snapshot.risk} />
+
+      {/* --------------------------------------------------- Pressure rail */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat
-          label="Policy Risk Score"
-          value={snapshot.risk.score}
-          hint={`${snapshot.risk.level} exposure`}
-          tone={
-            snapshot.risk.level === "Low"
-              ? "success"
-              : snapshot.risk.level === "Moderate"
-                ? "warning"
-                : "danger"
-          }
-        />
-        <Stat
-          label="Jurisdictions monitored"
-          value={operatingCount}
-          hint={`${snapshot.monitors.length} items in monitoring`}
-          href="/monitoring"
-        />
-        <Stat
-          label="Active compliance tasks"
-          value={openTasks.length}
-          hint={overdueTasks.length > 0 ? `${overdueTasks.length} overdue` : "Nothing overdue"}
-          tone={overdueTasks.length > 0 ? "danger" : "neutral"}
-          href="/planner"
-        />
-        <Stat
-          label="Upcoming deadlines"
-          value={activeReminders.filter((r) => (daysUntil(r.dueDate) ?? 999) >= 0).length}
-          hint="Across the next 12 months"
-          href="/reminders"
-        />
+        {pulse.map((item, index) => (
+          <Link
+            key={item.label}
+            href={item.href}
+            style={{ ["--rise-i" as string]: index + 2 }}
+            className="rise lift rounded-card border border-line bg-surface hover:border-brand-ring"
+          >
+            <Spine severity={item.severity} className="px-4 py-3 pl-5">
+              <p className="text-xs font-medium text-ink-muted">{item.label}</p>
+              <p
+                className={cn(
+                  "tabular mt-1 text-2xl font-semibold tracking-tight",
+                  item.value === 0 ? "text-ink-muted" : SEVERITY_TEXT[item.severity],
+                )}
+              >
+                {item.value}
+              </p>
+            </Spine>
+          </Link>
+        ))}
       </div>
 
       <div className="grid gap-5 lg:grid-cols-3">
-        <div className="space-y-5 lg:col-span-2">
-          {/* ------------------------------------------- Recommended actions */}
-          <Card>
+        <div className="min-w-0 space-y-5 lg:col-span-2">
+          {/* --------------------------------------- Needs a decision */}
+          <Card style={{ ["--rise-i" as string]: 3 }} className="rise">
             <CardHeader>
-              <CardTitle>Recommended actions</CardTitle>
+              <CardTitle>Needs a decision</CardTitle>
               <Link href="/planner" className="text-xs font-medium text-brand hover:underline">
                 Open action planner
               </Link>
             </CardHeader>
-            <CardContent className="space-y-2.5">
+            <CardContent className="space-y-2">
               {recommendations.length === 0 ? (
                 <EmptyState
-                  title="Nothing needs your attention right now"
-                  description="Add monitoring or a task and RegLens will start suggesting next steps."
+                  title="You are clear"
+                  description="Nothing is overdue and nothing is waiting on a review."
                 />
               ) : (
-                recommendations.slice(0, 5).map((rec) => (
+                recommendations.slice(0, 5).map((rec, index) => (
                   <Link
                     key={rec.title}
                     href={rec.href}
-                    className="flex items-start gap-3 rounded-lg border border-line p-3 transition-colors hover:border-brand-ring hover:bg-surface-muted"
+                    style={{ ["--rise-i" as string]: index }}
+                    className="slide-in group block rounded-lg border border-line transition-colors hover:border-brand-ring hover:bg-surface-muted"
                   >
-                    <span
-                      className={`mt-1 size-2 shrink-0 rounded-full ${
-                        rec.tone === "danger" ? "bg-danger" : rec.tone === "warning" ? "bg-warning" : "bg-brand"
-                      }`}
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-medium text-ink">{rec.title}</span>
-                      <span className="mt-0.5 line-clamp-2 block text-xs leading-5 text-ink-muted">
-                        {rec.body}
+                    <Spine severity={rec.severity} className="flex items-start gap-3 p-3 pl-4">
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-medium text-ink">{rec.title}</span>
+                        <span className="mt-0.5 line-clamp-2 block text-xs leading-5 text-ink-muted">
+                          {rec.body}
+                        </span>
                       </span>
-                    </span>
-                    <span className="ml-2 hidden shrink-0 items-center gap-1 text-xs font-medium text-brand sm:flex">
-                      {rec.cta}
-                      <ArrowRight className="size-3.5" />
-                    </span>
+                      <span className="ml-2 hidden shrink-0 items-center gap-1 text-xs font-medium text-brand sm:flex">
+                        {rec.cta}
+                        <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+                      </span>
+                    </Spine>
                   </Link>
                 ))
               )}
             </CardContent>
           </Card>
 
-          {/* ------------------------------------------- Upcoming deadlines */}
-          <Card>
+          {/* --------------------------------------- Dated obligations */}
+          <Card style={{ ["--rise-i" as string]: 4 }} className="rise">
             <CardHeader>
-              <CardTitle>Upcoming deadlines</CardTitle>
+              <CardTitle>What is coming up</CardTitle>
               <Link href="/reminders" className="text-xs font-medium text-brand hover:underline">
                 All reminders
               </Link>
             </CardHeader>
-            <CardContent className="p-0">
-              {upcoming.length === 0 ? (
-                <div className="p-5">
-                  <EmptyState
-                    icon={<CalendarClock className="size-6" />}
-                    title="No deadlines tracked yet"
-                    description="Add a reminder for your next filing, renewal or review."
-                    action={
-                      <Link href="/reminders" className={buttonVariants({ size: "sm" })}>
-                        Add a reminder
-                      </Link>
-                    }
-                  />
-                </div>
+            <CardContent>
+              {deadlines.length === 0 ? (
+                <EmptyState
+                  icon={<CalendarClock className="size-6" />}
+                  title="No deadlines tracked yet"
+                  description="Add a reminder for your next filing, renewal or review."
+                  action={
+                    <Link href="/reminders" className={buttonVariants({ size: "sm" })}>
+                      Add a reminder
+                    </Link>
+                  }
+                />
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[640px] text-sm">
-                    <thead>
-                      <tr className="border-b border-line text-left text-xs text-ink-muted">
-                        <th className="px-5 py-2 font-medium">Deadline</th>
-                        <th className="px-3 py-2 font-medium">Jurisdiction</th>
-                        <th className="px-3 py-2 font-medium">Category</th>
-                        <th className="px-3 py-2 font-medium">Due date</th>
-                        <th className="px-5 py-2 font-medium">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-line">
-                      {upcoming.map((reminder) => (
-                        <tr key={reminder.id} className="align-top">
-                          <td className="px-5 py-2.5">
-                            <span className="block font-medium text-ink">{reminder.title}</span>
-                            {reminder.policy ? (
-                              <Link
-                                href={`/policies/${reminder.policy.id}`}
-                                className="mt-0.5 block text-xs text-brand hover:underline"
-                              >
-                                {reminder.policy.title}
-                              </Link>
-                            ) : null}
-                          </td>
-                          <td className="px-3 py-2.5 text-ink-soft">
-                            {jurisdictionName(business.region)}
-                          </td>
-                          <td className="px-3 py-2.5 text-ink-soft">
-                            {reminder.kind
-                              .toLowerCase()
-                              .replace(/_/g, " ")
-                              .replace(/^\w/, (c) => c.toUpperCase())}
-                          </td>
-                          <td className="px-3 py-2.5 text-ink-soft tabular">{formatDate(reminder.dueDate)}</td>
-                          <td className="px-5 py-2.5">
-                            <DueBadge days={daysUntil(reminder.dueDate)} />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <DeadlineList entries={deadlines} />
               )}
             </CardContent>
           </Card>
 
-          {/* ------------------------------------------- Recent updates */}
-          <Card>
+          {/* ------------------------------------------ Recent changes */}
+          <Card style={{ ["--rise-i" as string]: 5 }} className="rise">
             <CardHeader>
               <CardTitle>Recently detected policy changes</CardTitle>
               <Link href="/monitoring" className="text-xs font-medium text-brand hover:underline">
                 Open monitoring
               </Link>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-2">
               {snapshot.updates.length === 0 ? (
                 <EmptyState
                   icon={<Radar className="size-6" />}
@@ -338,30 +356,42 @@ export default async function DashboardPage() {
                   }
                 />
               ) : (
-                snapshot.updates.slice(0, 5).map((update) => (
-                  <div key={update.id} className="rounded-lg border border-line p-3">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <UpdateTypeBadge type={update.type} />
-                      <ImportanceBadge importance={update.importance} />
-                      {update.reviewState === "UNREVIEWED" ? (
-                        <Badge tone="danger">Not reviewed</Badge>
-                      ) : update.reviewState === "REVIEWED" ? (
-                        <Badge tone="success">Reviewed</Badge>
-                      ) : (
-                        <Badge tone="neutral">Dismissed</Badge>
-                      )}
-                      <span className="ml-auto text-xs text-ink-muted">{relativeTime(update.detectedAt)}</span>
-                    </div>
-                    <p className="mt-2 text-sm font-medium text-ink">{update.title}</p>
-                    <p className="mt-1 text-xs leading-5 text-ink-muted">{update.description}</p>
-                    <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
-                      <Link href={`/policies/${update.policyId}`} className="font-medium text-brand hover:underline">
-                        {update.policy.title}
-                      </Link>
-                      <span className="text-ink-muted">
-                        {jurisdictionName(update.policy.jurisdictionCode)} · {update.policy.agency}
-                      </span>
-                    </div>
+                snapshot.updates.slice(0, 5).map((update, index) => (
+                  <div
+                    key={update.id}
+                    style={{ ["--rise-i" as string]: index }}
+                    className="slide-in rounded-lg border border-line"
+                  >
+                    <Spine
+                      severity={severityFromImportance(update.importance)}
+                      className="p-3 pl-4"
+                      label={`${update.importance.toLowerCase()} importance`}
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <UpdateTypeBadge type={update.type} />
+                        {update.reviewState === "UNREVIEWED" ? (
+                          <Badge tone="danger">Not reviewed</Badge>
+                        ) : null}
+                        <span className="ml-auto text-xs text-ink-muted">
+                          {relativeTime(update.detectedAt)}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-sm font-medium text-ink">{update.title}</p>
+                      <p className="mt-1 line-clamp-2 text-xs leading-5 text-ink-muted">
+                        {update.description}
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                        <Link
+                          href={`/policies/${update.policyId}`}
+                          className="font-medium text-brand hover:underline"
+                        >
+                          {update.policy.title}
+                        </Link>
+                        <span className="text-ink-muted">
+                          {jurisdictionName(update.policy.jurisdictionCode)} · {update.policy.agency}
+                        </span>
+                      </div>
+                    </Spine>
                   </div>
                 ))
               )}
@@ -369,57 +399,58 @@ export default async function DashboardPage() {
           </Card>
         </div>
 
-        <div className="space-y-5">
-          <RiskCard risk={snapshot.risk} />
+        <div className="min-w-0 space-y-5">
+          {/* -------------------------------------- Where rules come from */}
+          {strata.length > 0 ? (
+            <Card style={{ ["--rise-i" as string]: 3 }} className="rise">
+              <CardHeader>
+                <CardTitle>Where the rules come from</CardTitle>
+                <Link href="/compare" className="text-xs font-medium text-brand hover:underline">
+                  Compare
+                </Link>
+              </CardHeader>
+              <CardContent>
+                <Strata columns={strata} />
+                <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-ink-muted">
+                  <span>shade = tracked items</span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="inline-block size-2.5 rounded-[2px] outline-1 outline-dashed outline-brand-ring" />
+                    planned expansion
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
 
-          {/* ------------------------------------------- Quick actions */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Quick actions</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-1.5">
-              {QUICK_ACTIONS.map((action) => {
-                const Icon = action.icon;
-                return (
-                  <Link
-                    key={action.href}
-                    href={action.href}
-                    className="flex items-center gap-2.5 rounded-lg border border-line px-3 py-2 text-sm text-ink-soft transition-colors hover:border-brand-ring hover:text-ink"
-                  >
-                    <Icon className="size-4 text-ink-muted" />
-                    {action.label}
-                  </Link>
-                );
-              })}
-              <div className="pt-1">
-                <GenerateReportButton className="w-full" />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* ------------------------------------------- Recommended policies */}
-          <Card>
+          {/* ------------------------------------ Recommended policies */}
+          <Card style={{ ["--rise-i" as string]: 4 }} className="rise">
             <CardHeader>
               <CardTitle>Policies to review</CardTitle>
               <Link href="/policies" className="text-xs font-medium text-brand hover:underline">
                 See all
               </Link>
             </CardHeader>
-            <CardContent className="space-y-2.5">
-              {recommended.slice(0, 5).map((policy) => (
+            <CardContent className="space-y-2">
+              {recommended.slice(0, 5).map((policy, index) => (
                 <Link
                   key={policy.id}
                   href={`/policies/${policy.id}`}
-                  className="block rounded-lg border border-line p-3 transition-colors hover:border-brand-ring hover:bg-surface-muted"
+                  style={{ ["--rise-i" as string]: index }}
+                  className="slide-in block rounded-lg border border-line p-3 transition-colors hover:border-brand-ring hover:bg-surface-muted"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <p className="text-sm font-medium leading-5 text-ink">{policy.title}</p>
-                    <RelevanceBadge band={policy.relevance.band} />
+                    <Meter
+                      value={policy.relevance.score}
+                      label={`Relevance ${policy.relevance.score} of 100`}
+                      className="mt-0.5 shrink-0"
+                    />
                   </div>
                   <p className="mt-1 text-xs text-ink-muted">
                     {jurisdictionName(policy.jurisdictionCode)} · {policy.agency}
                   </p>
-                  <p className="mt-1 text-xs text-ink-muted">{policy.relevance.reasons[0]}</p>
+                  {/* The sentence that justifies the whole product — promoted. */}
+                  <p className="mt-1 text-xs text-ink-soft">{policy.relevance.reasons[0]}</p>
                 </Link>
               ))}
             </CardContent>
@@ -427,7 +458,7 @@ export default async function DashboardPage() {
 
           {/* ------------------------------------------- Profile gaps */}
           {snapshot.completion.missing.length > 0 ? (
-            <Card>
+            <Card style={{ ["--rise-i" as string]: 5 }} className="rise">
               <CardHeader>
                 <CardTitle>Incomplete profile information</CardTitle>
               </CardHeader>
@@ -438,7 +469,7 @@ export default async function DashboardPage() {
                 <ul className="space-y-1">
                   {snapshot.completion.missing.map((item) => (
                     <li key={item} className="flex items-center gap-2 text-sm text-ink-muted">
-                      <span className="size-1.5 rounded-full bg-warning" />
+                      <span className={cn("size-1.5 rounded-full", SEVERITY_BAR.watch)} />
                       {item}
                     </li>
                   ))}
@@ -450,43 +481,15 @@ export default async function DashboardPage() {
             </Card>
           ) : null}
 
-          {business.profile?.compliancePriorities.length ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>Your compliance priorities</CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-wrap gap-1.5">
-                {business.profile.compliancePriorities.map((topic) => (
-                  <Link key={topic} href={`/policies?topic=${topic}`}>
-                    <Badge tone="brand">{topicLabel(topic)}</Badge>
-                  </Link>
-                ))}
-              </CardContent>
-            </Card>
-          ) : null}
-
-          <Card>
+          <Card style={{ ["--rise-i" as string]: 6 }} className="rise">
             <CardHeader>
-              <CardTitle>Open tasks by status</CardTitle>
-              <Link href="/planner" className="text-xs font-medium text-brand hover:underline">
-                <ListChecks className="mr-1 inline size-3.5" />
-                Planner
-              </Link>
+              <CardTitle>Produce a report</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2">
-              {(["NOT_STARTED", "IN_PROGRESS", "BLOCKED", "COMPLETED"] as const).map((status) => {
-                const count = snapshot.tasks.filter((t) => t.status === status).length;
-                const label = status
-                  .toLowerCase()
-                  .replace(/_/g, " ")
-                  .replace(/^\w/, (c) => c.toUpperCase());
-                return (
-                  <div key={status} className="flex items-center justify-between text-sm">
-                    <span className="text-ink-soft">{label}</span>
-                    <span className="font-medium text-ink tabular">{count}</span>
-                  </div>
-                );
-              })}
+            <CardContent>
+              <p className="mb-3 text-sm text-ink-soft">
+                A dated snapshot of your profile, risk score, obligations and deadlines.
+              </p>
+              <GenerateReportButton className="w-full" />
             </CardContent>
           </Card>
         </div>

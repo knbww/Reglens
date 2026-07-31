@@ -5,6 +5,7 @@ import { ListChecks, Plus, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
+import { PlanProgressRing } from "@/components/app/planner/plan-progress-ring";
 import { TaskCard, type PlannerTask } from "@/components/app/planner/task-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -358,13 +359,22 @@ export function PlannerBoard({
               return (
                 <section key={plan.id} id={`plan-${plan.id}`} className="space-y-2">
                   <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <h2 className="text-sm font-semibold text-ink">{plan.title}</h2>
-                      <p className="mt-0.5 text-xs leading-5 text-ink-muted">{plan.description}</p>
-                      <p className="mt-1 text-xs text-ink-muted tabular">
-                        {completed}/{planTasks.length} complete · source:{" "}
-                        {plan.source.toLowerCase().replace(/_/g, " ")}
-                      </p>
+                    <div className="flex min-w-0 items-start gap-3">
+                      <PlanProgressRing
+                        done={completed}
+                        total={planTasks.length}
+                        className="mt-0.5 shrink-0"
+                      />
+                      <div className="min-w-0">
+                        <h2 className="text-[15px] font-semibold tracking-[-0.006em] text-ink">
+                          {plan.title}
+                        </h2>
+                        <p className="mt-0.5 text-xs leading-5 text-ink-muted">{plan.description}</p>
+                        <p className="tabular mt-1 text-xs text-ink-muted">
+                          {completed}/{planTasks.length} complete · source:{" "}
+                          {plan.source.toLowerCase().replace(/_/g, " ")}
+                        </p>
+                      </div>
                     </div>
                     <Button
                       type="button"
@@ -410,7 +420,7 @@ export function PlannerBoard({
       ) : (
         <div className="space-y-2">
           {filtered.map((task) => (
-            <TaskCard key={task.id} task={task} defaultOpen={task.id === openTaskId} />
+            <TaskCard key={task.id} task={task} defaultOpen={task.id === openTaskId} showPlan />
           ))}
         </div>
       )}

@@ -1,61 +1,51 @@
-import { Bell, Menu } from "lucide-react";
+import { Bell } from "lucide-react";
+import { cookies } from "next/headers";
 import Link from "next/link";
 import { Suspense } from "react";
 
-import { BusinessSwitcher } from "@/components/app/business-switcher";
 import { Logo } from "@/components/app/logo";
+import { AccountMenu } from "@/components/app/nav/account-menu";
+import { AppSidebar } from "@/components/app/nav/app-sidebar";
+import { MobileTabBar } from "@/components/app/nav/mobile-tab-bar";
 import { QuickSearch } from "@/components/app/quick-search";
-import { SidebarNav } from "@/components/app/sidebar-nav";
-import { UserMenu } from "@/components/app/user-menu";
-import { getUnreadNotificationCount } from "@/lib/queries";
+import { isCollapsed, NAV_COOKIE } from "@/lib/nav-preference";
+import { EMPTY_NAV_COUNTS, getNavCounts, getUnreadNotificationCount } from "@/lib/queries";
 import { getActiveBusiness, listBusinesses, requireUser } from "@/lib/session";
 import { SHORT_DISCLAIMER } from "@/lib/taxonomy";
 
 export async function AppShell({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
-  const [businesses, activeBusiness] = await Promise.all([
+  const [businesses, activeBusiness, cookieStore] = await Promise.all([
     listBusinesses(user.id),
     getActiveBusiness(user.id),
+    cookies(),
   ]);
-  const unread = activeBusiness ? await getUnreadNotificationCount(user.id, activeBusiness.id) : 0;
 
-  const sidebar = (
-    <div className="flex h-full flex-col gap-5 p-4">
-      <Link href="/dashboard" className="px-1">
-        <Logo />
-      </Link>
-      <BusinessSwitcher businesses={businesses} activeId={activeBusiness?.id ?? null} />
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <SidebarNav unreadCount={unread} />
-      </div>
-      <p className="border-t border-line px-1 pt-3 text-[11px] leading-4 text-ink-muted">{SHORT_DISCLAIMER}</p>
-    </div>
-  );
+  const [unread, counts] = activeBusiness
+    ? await Promise.all([
+        getUnreadNotificationCount(user.id, activeBusiness.id),
+        getNavCounts(activeBusiness),
+      ])
+    : [0, EMPTY_NAV_COUNTS];
+
+  const collapsed = isCollapsed(cookieStore.get(NAV_COOKIE)?.value);
 
   return (
     <div className="flex min-h-screen">
-      {/* Desktop sidebar */}
-      <aside className="print-hidden hidden w-64 shrink-0 border-r border-line bg-surface lg:block">
-        <div className="sticky top-0 h-screen">{sidebar}</div>
-      </aside>
+      <AppSidebar
+        businesses={businesses}
+        activeBusinessId={activeBusiness?.id ?? null}
+        counts={counts}
+        email={user.email}
+        fullName={user.fullName}
+        plan={user.plan}
+        initialCollapsed={collapsed}
+      />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="print-hidden sticky top-0 z-30 border-b border-line bg-surface/95 backdrop-blur">
           <div className="flex items-center gap-3 px-4 py-2.5 sm:px-6">
-            {/* Mobile drawer, CSS-only so it works without client state */}
-            <details className="group relative lg:hidden">
-              <summary
-                className="flex size-9 cursor-pointer list-none items-center justify-center rounded-lg text-ink-soft hover:bg-surface-muted"
-                aria-label="Open navigation"
-              >
-                <Menu className="size-5" />
-              </summary>
-              <div className="fixed inset-0 top-[57px] z-40 bg-canvas">
-                <div className="h-full w-72 border-r border-line bg-surface">{sidebar}</div>
-              </div>
-            </details>
-
-            <Link href="/dashboard" className="lg:hidden">
+            <Link href="/dashboard" aria-label="RegLens home" className="lg:hidden">
               <Logo showWordmark={false} />
             </Link>
 
@@ -64,6 +54,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
             </Suspense>
 
             <div className="ml-auto flex items-center gap-1.5">
+              {/* The only door to notifications — the duplicate sidebar row is gone. */}
               <Link
                 href="/notifications"
                 aria-label={`Notifications${unread ? `, ${unread} unread` : ""}`}
@@ -76,7 +67,18 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
                   </span>
                 ) : null}
               </Link>
-              <UserMenu email={user.email} fullName={user.fullName} plan={user.plan} />
+
+              {/* Desktop keeps the account menu in the sidebar foot. In the
+                  header there is no room for the name block — avatar only. */}
+              <div className="lg:hidden">
+                <AccountMenu
+                  email={user.email}
+                  fullName={user.fullName}
+                  plan={user.plan}
+                  placement="down"
+                  expanded={false}
+                />
+              </div>
             </div>
           </div>
           <Suspense>
@@ -96,7 +98,12 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
             </Link>
           </div>
         </footer>
+
+        {/* Clears the fixed tab bar so the footer is never trapped under it. */}
+        <div aria-hidden className="h-14 shrink-0 lg:hidden" />
       </div>
+
+      <MobileTabBar counts={counts} />
     </div>
   );
 }

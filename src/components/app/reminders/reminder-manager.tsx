@@ -11,7 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { EmptyState } from "@/components/ui/misc";
-import { DueBadge } from "@/components/ui/status";
+import { Spine } from "@/components/ui/severity";
+import { SEVERITY_TEXT, severityFromDays } from "@/lib/severity";
 import {
   createReminder,
   deleteReminder,
@@ -275,13 +276,14 @@ export function ReminderManager({
         />
       ) : (
         <ul className="space-y-2">
-          {visible.map((reminder) => {
+          {visible.map((reminder, index) => {
             const days = daysUntil(reminder.dueDate);
             const inWindow = days !== null && days <= reminder.advanceDays;
+            const severity = reminder.dismissed ? "clear" : severityFromDays(days);
             return (
-              <li key={reminder.id}>
-                <Card>
-                  <CardContent className="space-y-2.5">
+              <li key={reminder.id} style={{ ["--rise-i" as string]: index }} className="slide-in">
+                <Card className={cn("lift", reminder.dismissed && "opacity-70")}>
+                  <Spine severity={severity} className="space-y-2.5 px-5 py-4 pl-6">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-ink">{reminder.title}</p>
@@ -291,9 +293,17 @@ export function ReminderManager({
                           {reminder.advanceDays} days ahead
                         </p>
                       </div>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <DueBadge days={days} />
-                        {inWindow && !reminder.dismissed ? <Badge tone="info">Notification raised</Badge> : null}
+                      <div className="flex shrink-0 flex-wrap items-center gap-2">
+                        <span className={cn("tabular text-xs font-medium", SEVERITY_TEXT[severity])}>
+                          {days === null
+                            ? "No due date"
+                            : days < 0
+                              ? `${Math.abs(days)}d overdue`
+                              : days === 0
+                                ? "Due today"
+                                : `${days}d left`}
+                        </span>
+                        {inWindow && !reminder.dismissed ? <Badge tone="info">Notified</Badge> : null}
                         {isFuture(reminder.snoozedUntil) ? (
                           <Badge tone="neutral">Snoozed to {formatDate(reminder.snoozedUntil)}</Badge>
                         ) : null}
@@ -363,7 +373,7 @@ export function ReminderManager({
                         Delete
                       </Button>
                     </div>
-                  </CardContent>
+                  </Spine>
                 </Card>
               </li>
             );

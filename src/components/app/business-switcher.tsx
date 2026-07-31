@@ -21,9 +21,12 @@ export type BusinessOption = {
 export function BusinessSwitcher({
   businesses,
   activeId,
+  compact = false,
 }: {
   businesses: BusinessOption[];
   activeId: string | null;
+  /** Icon-only trigger for the collapsed rail, opening to the side. */
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const { busy: pending, run } = useAction();
@@ -62,7 +65,7 @@ export function BusinessSwitcher({
     if (items.length === 0) return null;
     return (
       <div className="py-1">
-        <p className="px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">{label}</p>
+        <p className="px-3 py-1 text-xs font-medium text-ink-muted">{label}</p>
         {items.map((b) => (
           <button
             key={b.id}
@@ -92,26 +95,40 @@ export function BusinessSwitcher({
         disabled={pending}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="flex w-full items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-2 text-left transition-colors hover:border-brand-ring disabled:opacity-60"
+        aria-label={compact ? `Active business: ${active?.name ?? "none"}. Switch business` : undefined}
+        title={compact ? active?.name : undefined}
+        className={cn(
+          "flex items-center rounded-lg border border-line bg-surface text-left transition-colors hover:border-brand-ring disabled:opacity-60",
+          compact ? "size-10 justify-center" : "w-full gap-2 px-2.5 py-2",
+        )}
       >
         <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-brand-soft text-brand">
           <Building2 className="size-4" />
         </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium text-ink">
-            {active?.name ?? "No business yet"}
-          </span>
-          <span className="block truncate text-[11px] text-ink-muted">
-            {active ? [active.city, active.region.replace(/^[A-Z]{2}-/, "")].filter(Boolean).join(", ") : "Create one to start"}
-          </span>
-        </span>
-        <ChevronsUpDown className="size-4 shrink-0 text-ink-muted" />
+        {compact ? null : (
+          <>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium text-ink">
+                {active?.name ?? "No business yet"}
+              </span>
+              <span className="block truncate text-[11px] text-ink-muted">
+                {active
+                  ? [active.city, active.region.replace(/^[A-Z]{2}-/, "")].filter(Boolean).join(", ")
+                  : "Create one to start"}
+              </span>
+            </span>
+            <ChevronsUpDown className="size-4 shrink-0 text-ink-muted" />
+          </>
+        )}
       </button>
 
       {open ? (
         <div
           role="listbox"
-          className="absolute left-0 right-0 top-full z-40 mt-1 max-h-96 overflow-auto rounded-lg border border-line bg-surface py-1 shadow-lg"
+          className={cn(
+            "absolute z-40 max-h-96 overflow-auto rounded-lg border border-line bg-surface py-1 shadow-lg",
+            compact ? "left-full top-0 ml-2 w-64" : "left-0 right-0 top-full mt-1",
+          )}
         >
           {renderGroup("Your businesses", own)}
           {renderGroup("Demo businesses", demos)}

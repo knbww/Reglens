@@ -112,7 +112,7 @@ async function run(browser: Browser) {
   check("switching to Sparc Technologies works", await switchBusiness(page, "Frostonic", "Sparc"));
   check(
     "the new business renders its own risk card",
-    (await page.locator("text=/ 100 exposure/").first().innerText().catch(() => "")).length > 0,
+    (await page.locator("text=/exposure, out of 100/").first().innerText().catch(() => "")).length > 0,
   );
   check("switching to Ricos Boutique works", await switchBusiness(page, "Sparc", "Ricos"));
 
