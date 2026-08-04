@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { Logo } from "@/components/app/logo";
-import { Card, CardContent } from "@/components/ui/card";
 import { DISCLAIMER } from "@/lib/taxonomy";
 
 export const metadata: Metadata = { title: "Legal & disclaimer" };
@@ -43,39 +42,48 @@ const SECTIONS: { title: string; body: string[] }[] = [
   },
 ];
 
+/*
+ * The question: how much weight can I put on what RegLens tells me?
+ * Prose, in one column, in the order the doubt arrives. No cards — five
+ * bordered boxes made a plain answer look like a form to be processed.
+ */
 export default function LegalPage() {
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="border-b border-line bg-surface">
-        <div className="mx-auto w-full max-w-4xl px-4 py-3.5 sm:px-6">
-          <Link href="/">
-            <Logo />
-          </Link>
-        </div>
+    <div className="mx-auto flex min-h-screen w-full max-w-2xl flex-col px-5">
+      <header className="py-5">
+        <Link href="/" aria-label="RegLens home" className="inline-flex">
+          <Logo />
+        </Link>
       </header>
-      <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-10 sm:px-6">
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">Legal &amp; disclaimer</h1>
-        <p className="mt-2 text-sm text-ink-muted">
+
+      <main className="flex-1 pb-16 pt-8 sm:pt-12">
+        <p className="text-xs text-ink-muted">RegLens AI</p>
+        <h1 className="mt-3 text-display font-semibold text-balance text-ink">
+          Legal &amp; disclaimer
+        </h1>
+        <p className="mt-3 text-[15px] leading-7 text-ink-soft">
           How to read what RegLens tells you, and what it does not do.
         </p>
 
-        <div className="mt-6 space-y-4">
+        <div className="mt-10">
           {SECTIONS.map((section) => (
-            <Card key={section.title}>
-              <CardContent>
-                <h2 className="text-sm font-semibold text-ink">{section.title}</h2>
-                {section.body.map((paragraph) => (
-                  <p key={paragraph.slice(0, 40)} className="mt-2 text-sm leading-6 text-ink-soft">
-                    {paragraph}
-                  </p>
-                ))}
-              </CardContent>
-            </Card>
+            <section key={section.title} className="border-t border-line py-8 last:pb-0">
+              <h2 className="text-title font-semibold text-ink">{section.title}</h2>
+              {section.body.map((paragraph) => (
+                <p
+                  key={paragraph.slice(0, 40)}
+                  className="mt-3 text-[15px] leading-7 text-ink-soft"
+                >
+                  {paragraph}
+                </p>
+              ))}
+            </section>
           ))}
         </div>
       </main>
-      <footer className="border-t border-line px-4 py-6 text-center text-xs text-ink-muted">
-        <Link href="/" className="hover:text-ink">
+
+      <footer className="border-t border-line py-6 text-xs text-ink-muted">
+        <Link href="/" className="transition-colors hover:text-ink">
           Back to RegLens
         </Link>
       </footer>

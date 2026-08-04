@@ -1,6 +1,5 @@
 "use client";
 
-import { Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -9,14 +8,24 @@ import { Field, Input } from "@/components/ui/field";
 import { deleteBusiness, updateAccount } from "@/lib/actions/business";
 import { useAction } from "@/lib/use-action";
 
+/**
+ * The account name.
+ *
+ * Save state is never ambiguous: the button is dead until something actually
+ * changed, says what it is doing while it does it, and the outcome is written
+ * out in words next to it rather than implied by the form settling down.
+ */
 export function AccountForm({ fullName, email }: { fullName: string | null; email: string }) {
   const router = useRouter();
-  const { busy: pending, run } = useAction();
+  const { busy: pending, error, run } = useAction();
+  const [name, setName] = useState(fullName ?? "");
   const [saved, setSaved] = useState(false);
+
+  const dirty = name.trim() !== (fullName ?? "").trim();
 
   return (
     <form
-      className="space-y-3"
+      className="max-w-md space-y-4"
       action={(formData) => {
         run(async () => {
           await updateAccount(formData);
@@ -29,19 +38,36 @@ export function AccountForm({ fullName, email }: { fullName: string | null; emai
         <Input
           id="fullName"
           name="fullName"
-          defaultValue={fullName ?? ""}
+          value={name}
           placeholder="Alex Moreno"
-          onChange={() => setSaved(false)}
+          onChange={(e) => {
+            setName(e.target.value);
+            setSaved(false);
+          }}
         />
       </Field>
+
       <Field label="Email" htmlFor="email" hint="Managed by Supabase Auth and cannot be changed here.">
         <Input id="email" value={email} disabled readOnly />
       </Field>
-      <div className="flex items-center gap-3">
-        <Button type="submit" disabled={pending}>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <Button type="submit" disabled={pending || !dirty}>
           {pending ? "Saving…" : "Save changes"}
         </Button>
-        {saved ? <span className="text-xs text-success">Saved.</span> : null}
+        <span className="text-[13px] text-ink-muted" aria-live="polite">
+          {error ? (
+            <span className="font-medium text-alert">{error}</span>
+          ) : pending ? (
+            "Saving your name…"
+          ) : saved && !dirty ? (
+            "Saved. Your name is up to date."
+          ) : dirty ? (
+            "Unsaved change."
+          ) : (
+            "No changes to save."
+          )}
+        </span>
       </div>
     </form>
   );
@@ -71,8 +97,7 @@ export function DeleteBusinessButton({ businessId, name }: { businessId: string;
         });
       }}
     >
-      <Trash2 className="size-3.5" />
-      Delete
+      {pending ? "Deleting…" : "Delete"}
     </Button>
   );
 }

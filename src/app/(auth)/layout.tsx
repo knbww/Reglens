@@ -3,22 +3,23 @@ import Link from "next/link";
 import { Logo } from "@/components/app/logo";
 import { SHORT_DISCLAIMER } from "@/lib/taxonomy";
 
+/**
+ * The frame around the two auth pages. No header rule, no footer rule and no
+ * card: a single narrow column with the wordmark above it and the standing
+ * disclaimer set quietly below.
+ */
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="border-b border-line bg-surface">
-        <div className="mx-auto w-full max-w-6xl px-4 py-3.5 sm:px-6">
-          <Link href="/">
-            <Logo />
-          </Link>
-        </div>
+    <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-5">
+      <header className="py-5">
+        <Link href="/" aria-label="RegLens home" className="inline-flex">
+          <Logo />
+        </Link>
       </header>
-      <main className="flex flex-1 items-start justify-center px-4 py-12 sm:py-16">
-        <div className="w-full max-w-md">{children}</div>
-      </main>
-      <footer className="border-t border-line px-4 py-5 text-center text-xs text-ink-muted sm:px-6">
-        <p className="mx-auto max-w-2xl leading-5">{SHORT_DISCLAIMER}</p>
-      </footer>
+
+      <main className="flex-1 pt-8 sm:pt-14">{children}</main>
+
+      <footer className="py-8 text-xs leading-5 text-ink-muted">{SHORT_DISCLAIMER}</footer>
     </div>
   );
 }

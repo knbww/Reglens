@@ -6,6 +6,11 @@ import { SignInForm } from "./sign-in-form";
 
 export const metadata: Metadata = { title: "Sign in" };
 
+/*
+ * The question: how do I get back in?
+ * One primary action — sign in. The demo sits below a rule as the other way
+ * through, for people who have not got an account yet.
+ */
 export default async function SignInPage({
   searchParams,
 }: {
@@ -14,30 +19,35 @@ export default async function SignInPage({
   const params = await searchParams;
 
   return (
-    <div className="rounded-card border border-line bg-surface p-6 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
-      <h1 className="text-xl font-semibold tracking-tight text-ink">Sign in to RegLens</h1>
-      <p className="mt-1 text-sm text-ink-muted">
+    <div className="rise pb-6">
+      <h1 className="text-display font-semibold text-balance text-ink">Sign in</h1>
+      <p className="mt-3 text-[15px] leading-7 text-ink-soft">
         Pick up your dashboard, deadlines and monitored policies.
       </p>
 
-      <div className="mt-6">
-        <DemoSignInButton autoStart={params.demo === "1"} />
+      <div className="mt-8">
+        <SignInForm next={params.next ?? "/dashboard"} />
       </div>
 
-      <div className="my-6 flex items-center gap-3">
-        <span className="h-px flex-1 bg-line" />
-        <span className="text-xs text-ink-muted">or use your account</span>
-        <span className="h-px flex-1 bg-line" />
-      </div>
-
-      <SignInForm next={params.next ?? "/dashboard"} />
-
-      <p className="mt-6 text-center text-sm text-ink-muted">
+      <p className="mt-5 text-[13px] text-ink-muted">
         Do not have an account?{" "}
-        <Link href="/sign-up" className="font-medium text-brand hover:underline">
+        <Link
+          href="/sign-up"
+          className="text-ink-soft underline decoration-line-strong underline-offset-4 transition-colors hover:text-ink"
+        >
           Create one
         </Link>
       </p>
+
+      <div className="mt-10 border-t border-line pt-8">
+        <p className="text-[13px] leading-6 text-ink-soft">
+          Or look around first. The demo account loads five example businesses with their own
+          deadlines, monitored policies and history.
+        </p>
+        <div className="mt-4">
+          <DemoSignInButton autoStart={params.demo === "1"} />
+        </div>
+      </div>
     </div>
   );
 }

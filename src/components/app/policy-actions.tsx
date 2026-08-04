@@ -1,6 +1,5 @@
 "use client";
 
-import { Bookmark, BookmarkCheck, ListPlus, Radar, Sparkles, SplitSquareHorizontal } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -8,17 +7,27 @@ import { useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { createPlanFromPolicy, toggleMonitorPolicy, toggleSavedPolicy } from "@/lib/actions/policies";
 import { useAction } from "@/lib/use-action";
+import { cn } from "@/lib/utils";
 
+/**
+ * What you can do about this policy without leaving the page.
+ *
+ * Five equal outlined buttons made every option look equally likely. Turning a
+ * rule into planned work is the one that disposes of the reason you opened the
+ * record, so it is the only filled control; the rest recede to ghosts.
+ */
 export function PolicyActions({
   policyId,
   topic,
   initialSaved,
   initialMonitored,
+  className,
 }: {
   policyId: string;
   topic: string | null;
   initialSaved: boolean;
   initialMonitored: boolean;
+  className?: string;
 }) {
   const router = useRouter();
   const { busy: pending, run } = useAction();
@@ -27,16 +36,32 @@ export function PolicyActions({
   const [message, setMessage] = useState<string | null>(null);
 
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap gap-2">
-        <Link href={`/analyst?policy=${policyId}`} className={buttonVariants()}>
-          <Sparkles className="size-4" />
-          Ask AI about this policy
+    <div className={cn(className)}>
+      <div className="flex flex-wrap items-center gap-x-1 gap-y-2">
+        <Button
+          type="button"
+          disabled={pending}
+          onClick={() =>
+            run(async () => {
+              const result = await createPlanFromPolicy(policyId);
+              if (!result.ok) {
+                setMessage(result.error);
+                return;
+              }
+              router.push(`/planner?plan=${result.planId}`);
+            })
+          }
+        >
+          Create action plan
+        </Button>
+
+        <Link href={`/analyst?policy=${policyId}`} className={buttonVariants({ variant: "ghost" })}>
+          Ask the analyst
         </Link>
 
         <Button
           type="button"
-          variant="secondary"
+          variant="ghost"
           disabled={pending}
           onClick={() =>
             run(async () => {
@@ -50,32 +75,12 @@ export function PolicyActions({
             })
           }
         >
-          <Radar className="size-4" />
           {monitored ? "Stop monitoring" : "Add to monitoring"}
         </Button>
 
         <Button
           type="button"
-          variant="secondary"
-          disabled={pending}
-          onClick={() =>
-            run(async () => {
-              const result = await createPlanFromPolicy(policyId);
-              if (!result.ok) {
-                setMessage(result.error);
-                return;
-              }
-              router.push(`/planner?plan=${result.planId}`);
-            })
-          }
-        >
-          <ListPlus className="size-4" />
-          Create action plan
-        </Button>
-
-        <Button
-          type="button"
-          variant="secondary"
+          variant="ghost"
           disabled={pending}
           onClick={() =>
             run(async () => {
@@ -85,24 +90,18 @@ export function PolicyActions({
             })
           }
         >
-          {saved ? <BookmarkCheck className="size-4" /> : <Bookmark className="size-4" />}
           {saved ? "Saved" : "Save policy"}
         </Button>
 
         <Link
           href={topic ? `/compare?topic=${topic}` : "/compare"}
-          className={buttonVariants({ variant: "secondary" })}
+          className={buttonVariants({ variant: "ghost" })}
         >
-          <SplitSquareHorizontal className="size-4" />
-          Compare with another jurisdiction
+          Compare jurisdictions
         </Link>
       </div>
 
-      {message ? (
-        <p className="rounded-lg border border-line bg-surface-muted px-3 py-2 text-xs text-ink-soft">
-          {message}
-        </p>
-      ) : null}
+      {message ? <p className="mt-3 text-[13px] leading-6 text-ink-soft">{message}</p> : null}
     </div>
   );
 }

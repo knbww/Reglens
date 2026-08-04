@@ -5,6 +5,13 @@ import { useState } from "react";
 
 import { Input } from "@/components/ui/field";
 
+/**
+ * A short list of free-text values.
+ *
+ * The values are the content, so they carry no border and no colour of their
+ * own — a half-step of ground is enough to show where one ends and the next
+ * begins. Suggestions read as text you can click, not as another row of pills.
+ */
 export function TagInput({
   values,
   onChange,
@@ -37,24 +44,27 @@ export function TagInput({
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap gap-1.5">
-        {values.map((value) => (
-          <span
-            key={value}
-            className="inline-flex items-center gap-1 rounded-full border border-brand-ring bg-brand-soft py-0.5 pl-2.5 pr-1 text-xs text-brand"
-          >
-            {value}
-            <button
-              type="button"
-              aria-label={`Remove ${value}`}
-              onClick={() => onChange(values.filter((v) => v !== value))}
-              className="rounded-full p-0.5 hover:bg-brand-ring/40"
+      {values.length > 0 ? (
+        <ul className="flex flex-wrap gap-1.5">
+          {values.map((value) => (
+            <li
+              key={value}
+              className="inline-flex items-center gap-1 rounded-md bg-surface-muted py-1 pl-2.5 pr-1 text-[13px] text-ink"
             >
-              <X className="size-3" />
-            </button>
-          </span>
-        ))}
-      </div>
+              {value}
+              <button
+                type="button"
+                aria-label={`Remove ${value}`}
+                onClick={() => onChange(values.filter((v) => v !== value))}
+                className="rounded p-0.5 text-ink-muted transition-colors hover:text-ink"
+              >
+                <X className="size-3" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
       <Input
         id={id}
         value={draft}
@@ -70,19 +80,20 @@ export function TagInput({
         }}
         onBlur={() => add(draft)}
       />
+
       {remaining.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5">
+        <p className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[13px] text-ink-muted">
           {remaining.slice(0, 8).map((s) => (
             <button
               key={s}
               type="button"
               onClick={() => add(s)}
-              className="rounded-full border border-line px-2.5 py-0.5 text-xs text-ink-soft transition-colors hover:border-brand-ring hover:text-brand"
+              className="underline decoration-line-strong underline-offset-4 transition-colors hover:text-ink"
             >
-              + {s}
+              {s}
             </button>
           ))}
-        </div>
+        </p>
       ) : null}
     </div>
   );

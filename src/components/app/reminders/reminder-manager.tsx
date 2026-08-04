@@ -1,18 +1,13 @@
 "use client";
 
 import type { ReminderKind } from "@prisma/client";
-import { AlarmClock, BellOff, CalendarClock, Plus, RotateCcw, Trash2, X } from "lucide-react";
+import { format } from "date-fns";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
-import { EmptyState } from "@/components/ui/misc";
-import { Spine } from "@/components/ui/severity";
-import { SEVERITY_TEXT, severityFromDays } from "@/lib/severity";
 import {
   createReminder,
   deleteReminder,
@@ -48,6 +43,47 @@ const KINDS: { value: ReminderKind; label: string }[] = [
 
 type View = "active" | "overdue" | "snoozed" | "dismissed";
 
+const VIEWS: [View, string][] = [
+  ["active", "Upcoming"],
+  ["overdue", "Overdue"],
+  ["snoozed", "Snoozed"],
+  ["dismissed", "Dismissed"],
+];
+
+const EMPTY: Record<View, { title: string; body: string }> = {
+  active: {
+    title: "Nothing is coming up",
+    body: "Add your next filing, renewal or review date and RegLens will raise it in advance, inside the product.",
+  },
+  overdue: {
+    title: "Nothing has been missed",
+    body: "Every date on your calendar is still ahead of you.",
+  },
+  snoozed: {
+    title: "Nothing snoozed",
+    body: "Dates you push back for a week will wait here until they come round again.",
+  },
+  dismissed: {
+    title: "Nothing dismissed",
+    body: "Dates you close are kept here and can be restored.",
+  },
+};
+
+function dueFigure(days: number | null): string {
+  if (days === null) return "no date";
+  if (days < 0) return `${Math.abs(days)} ${Math.abs(days) === 1 ? "day" : "days"} late`;
+  if (days === 0) return "today";
+  return `${days} ${days === 1 ? "day" : "days"} left`;
+}
+
+/**
+ * The calendar of obligations.
+ *
+ * Rows are grouped by the month they fall in, so a year of filing dates reads
+ * as a calendar rather than as a stack of cards, and each row carries the
+ * actions that dispose of it — snooze, dismiss, restore — so nothing here
+ * needs a trip to another screen.
+ */
 export function ReminderManager({
   reminders,
   policies,
@@ -60,6 +96,8 @@ export function ReminderManager({
   const [view, setView] = useState<View>("active");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [disposed, setDisposed] = useState<Set<string>>(new Set());
+  const [leaving, setLeaving] = useState<string | null>(null);
   const [draft, setDraft] = useState({
     title: "",
     notes: "",
@@ -69,19 +107,50 @@ export function ReminderManager({
     policyId: "",
   });
 
+  // Fresh server data supersedes anything the queue was hiding locally. Adjusted
+  // during render rather than in an effect, so the list never paints one frame
+  // of stale hiding before correcting itself.
+  const [seenReminders, setSeenReminders] = useState(reminders);
+  if (seenReminders !== reminders) {
+    setSeenReminders(reminders);
+    setDisposed(new Set());
+    setLeaving(null);
+  }
+
   const groups = useMemo(() => {
+    const rows = reminders.filter((r) => !disposed.has(r.id));
     const isSnoozed = (r: ReminderRow) => isFuture(r.snoozedUntil);
     return {
-      active: reminders.filter((r) => !r.dismissed && !isSnoozed(r) && (daysUntil(r.dueDate) ?? 0) >= 0),
-      overdue: reminders.filter((r) => !r.dismissed && !isSnoozed(r) && (daysUntil(r.dueDate) ?? 0) < 0),
-      snoozed: reminders.filter((r) => !r.dismissed && isSnoozed(r)),
-      dismissed: reminders.filter((r) => r.dismissed),
+      active: rows.filter((r) => !r.dismissed && !isSnoozed(r) && (daysUntil(r.dueDate) ?? 0) >= 0),
+      overdue: rows.filter((r) => !r.dismissed && !isSnoozed(r) && (daysUntil(r.dueDate) ?? 0) < 0),
+      snoozed: rows.filter((r) => !r.dismissed && isSnoozed(r)),
+      dismissed: rows.filter((r) => r.dismissed),
     };
-  }, [reminders]);
+  }, [reminders, disposed]);
 
-  function mutate(fn: () => Promise<unknown>) {
+  const visible = groups[view];
+
+  /** Month headings turn a flat list of dates back into a calendar. */
+  const months = useMemo(() => {
+    const out: { key: string; label: string; items: ReminderRow[] }[] = [];
+    for (const reminder of visible) {
+      const date = new Date(reminder.dueDate);
+      const key = format(date, "yyyy-MM");
+      const last = out[out.length - 1];
+      if (last && last.key === key) last.items.push(reminder);
+      else out.push({ key, label: format(date, "MMMM yyyy"), items: [reminder] });
+    }
+    return out;
+  }, [visible]);
+
+  /** Acting on a row removes it from the view it was in, in place. */
+  function dispose(id: string, work: () => Promise<unknown>) {
+    setLeaving(id);
     run(async () => {
-      await fn();
+      await work();
+      await new Promise((resolve) => setTimeout(resolve, 170));
+      setDisposed((previous) => new Set(previous).add(id));
+      setLeaving(null);
       router.refresh();
     });
   }
@@ -118,61 +187,43 @@ export function ReminderManager({
         policyId: "",
       });
       setCreating(false);
+      setView("active");
       router.refresh();
     });
   }
 
-  const visible = groups[view];
-
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2 rounded-card border border-line bg-surface p-3">
-        <div className="flex flex-wrap gap-1.5">
-          {(
-            [
-              ["active", "Upcoming"],
-              ["overdue", "Overdue"],
-              ["snoozed", "Snoozed"],
-              ["dismissed", "Dismissed"],
-            ] as [View, string][]
-          ).map(([key, label]) => (
+    <div className="rise">
+      <div className="flex flex-wrap items-center gap-x-1 gap-y-2 border-b border-line pb-3">
+        <div className="-ml-2.5 flex flex-wrap items-center">
+          {VIEWS.map(([key, label]) => (
             <button
               key={key}
               type="button"
+              aria-pressed={view === key}
               onClick={() => setView(key)}
               className={cn(
-                "rounded-full border px-2.5 py-1 text-xs transition-colors",
-                view === key
-                  ? "border-brand bg-brand-soft font-medium text-brand"
-                  : "border-line text-ink-soft hover:border-brand-ring",
+                "rounded-md px-2.5 py-1 text-[13px] transition-colors",
+                view === key ? "bg-surface-muted font-medium text-ink" : "text-ink-muted hover:text-ink",
               )}
             >
-              {label}
-              <span className="ml-1.5 tabular opacity-70">{groups[key].length}</span>
+              {label} <span className="tabular text-ink-muted">{groups[key].length}</span>
             </button>
           ))}
         </div>
-        <Button type="button" size="sm" className="ml-auto" onClick={() => setCreating((v) => !v)}>
-          <Plus className="size-3.5" />
-          New reminder
-        </Button>
+
+        {creating ? null : (
+          <Button type="button" size="sm" className="ml-auto" onClick={() => setCreating(true)}>
+            New reminder
+          </Button>
+        )}
       </div>
 
       {creating ? (
-        <Card>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-ink">New reminder</h2>
-              <button
-                type="button"
-                aria-label="Close"
-                onClick={() => setCreating(false)}
-                className="rounded p-1 text-ink-muted hover:bg-surface-muted hover:text-ink"
-              >
-                <X className="size-4" />
-              </button>
-            </div>
+        <div className="border-b border-line py-6">
+          <h2 className="text-title font-semibold text-ink">New reminder</h2>
 
+          <div className="mt-4 max-w-2xl space-y-4">
             <Field label="What is the reminder for?">
               <Input
                 value={draft.title}
@@ -182,7 +233,7 @@ export function ReminderManager({
               />
             </Field>
 
-            <div className="grid gap-3 sm:grid-cols-4">
+            <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Type">
                 <Select
                   value={draft.kind}
@@ -234,151 +285,161 @@ export function ReminderManager({
               />
             </Field>
 
-            {error ? <p className="text-xs text-danger">{error}</p> : null}
+            {error ? <p className="text-[13px] text-danger">{error}</p> : null}
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               <Button type="button" onClick={submit} disabled={pending}>
                 {pending ? "Creating…" : "Create reminder"}
               </Button>
-              <Button type="button" variant="ghost" onClick={() => setCreating(false)} disabled={pending}>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setCreating(false)}
+                disabled={pending}
+              >
                 Cancel
               </Button>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       ) : null}
 
       {visible.length === 0 ? (
-        <EmptyState
-          icon={<CalendarClock className="size-6" />}
-          title={
-            view === "active"
-              ? "No upcoming reminders"
-              : view === "overdue"
-                ? "Nothing is overdue"
-                : view === "snoozed"
-                  ? "Nothing snoozed"
-                  : "Nothing dismissed"
-          }
-          description={
-            view === "active"
-              ? "Add your next filing, renewal or review date and RegLens will raise it in advance."
-              : undefined
-          }
-          action={
-            view === "active" ? (
-              <Button type="button" size="sm" onClick={() => setCreating(true)}>
-                <Plus className="size-3.5" />
-                Add a reminder
-              </Button>
-            ) : undefined
-          }
-        />
+        <div className="py-14">
+          <p className="text-title font-semibold text-ink">{EMPTY[view].title}</p>
+          <p className="mt-3 max-w-md text-[15px] leading-7 text-ink-soft">{EMPTY[view].body}</p>
+        </div>
       ) : (
-        <ul className="space-y-2">
-          {visible.map((reminder, index) => {
-            const days = daysUntil(reminder.dueDate);
-            const inWindow = days !== null && days <= reminder.advanceDays;
-            const severity = reminder.dismissed ? "clear" : severityFromDays(days);
-            return (
-              <li key={reminder.id} style={{ ["--rise-i" as string]: index }} className="slide-in">
-                <Card className={cn("lift", reminder.dismissed && "opacity-70")}>
-                  <Spine severity={severity} className="space-y-2.5 px-5 py-4 pl-6">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
+        months.map((month) => (
+          <section key={month.key} className="pt-8 first:pt-6">
+            <div className="flex items-baseline justify-between gap-4 border-b border-line pb-2">
+              <h2 className="text-[15px] font-medium text-ink">{month.label}</h2>
+              <p className="tabular text-xs text-ink-muted">
+                {month.items.length} {month.items.length === 1 ? "date" : "dates"}
+              </p>
+            </div>
+
+            <ul>
+              {month.items.map((reminder) => {
+                const days = daysUntil(reminder.dueDate);
+                const late = days !== null && days < 0 && !reminder.dismissed;
+                const meta = [
+                  KINDS.find((k) => k.value === reminder.kind)?.label ?? reminder.kind,
+                  `notifies ${reminder.advanceDays} days ahead`,
+                  isFuture(reminder.snoozedUntil)
+                    ? `snoozed until ${formatDate(reminder.snoozedUntil)}`
+                    : null,
+                  reminder.dismissed ? "dismissed" : null,
+                ].filter(Boolean);
+
+                return (
+                  <li
+                    key={reminder.id}
+                    className={cn(
+                      "border-b border-line py-5 last:border-b-0",
+                      leaving === reminder.id && "dispose",
+                    )}
+                  >
+                    <div className="flex gap-4 sm:gap-6">
+                      <p className="tabular w-12 shrink-0 text-[13px] text-ink-muted">
+                        {format(new Date(reminder.dueDate), "EEE d")}
+                      </p>
+
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-ink">{reminder.title}</p>
-                        <p className="mt-0.5 text-xs text-ink-muted">
-                          {KINDS.find((k) => k.value === reminder.kind)?.label ?? reminder.kind} ·{" "}
-                          <span className="tabular">{formatDate(reminder.dueDate)}</span> · notifies{" "}
-                          {reminder.advanceDays} days ahead
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 flex-wrap items-center gap-2">
-                        <span className={cn("tabular text-xs font-medium", SEVERITY_TEXT[severity])}>
-                          {days === null
-                            ? "No due date"
-                            : days < 0
-                              ? `${Math.abs(days)}d overdue`
-                              : days === 0
-                                ? "Due today"
-                                : `${days}d left`}
-                        </span>
-                        {inWindow && !reminder.dismissed ? <Badge tone="info">Notified</Badge> : null}
-                        {isFuture(reminder.snoozedUntil) ? (
-                          <Badge tone="neutral">Snoozed to {formatDate(reminder.snoozedUntil)}</Badge>
+                        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                          <h3
+                            className={cn(
+                              "min-w-0 text-[15px] font-medium",
+                              reminder.dismissed ? "text-ink-muted" : "text-ink",
+                            )}
+                          >
+                            {reminder.title}
+                          </h3>
+                          <span
+                            className={cn(
+                              "tabular shrink-0 text-[13px]",
+                              late ? "font-medium text-alert" : "text-ink-muted",
+                            )}
+                          >
+                            {dueFigure(days)}
+                          </span>
+                        </div>
+
+                        <p className="mt-1 text-[13px] text-ink-muted">{meta.join(" · ")}</p>
+
+                        {reminder.notes ? (
+                          <p className="mt-2 max-w-2xl text-[15px] leading-7 text-ink-soft">
+                            {reminder.notes}
+                          </p>
                         ) : null}
+
+                        {reminder.policyId ? (
+                          <p className="mt-2">
+                            <Link
+                              href={`/policies/${reminder.policyId}`}
+                              className="text-[13px] text-ink-soft underline decoration-line-strong underline-offset-4 hover:text-ink"
+                            >
+                              {reminder.policyTitle ?? "Linked policy"}
+                            </Link>
+                          </p>
+                        ) : null}
+
+                        <div className="mt-3 flex flex-wrap items-center gap-x-1 gap-y-2">
+                          {reminder.dismissed ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              disabled={pending}
+                              onClick={() => dispose(reminder.id, () => restoreReminder(reminder.id))}
+                            >
+                              Restore
+                            </Button>
+                          ) : (
+                            <>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                disabled={pending}
+                                onClick={() =>
+                                  dispose(reminder.id, () => snoozeReminder(reminder.id, 7))
+                                }
+                              >
+                                Snooze 7 days
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                disabled={pending}
+                                onClick={() => dispose(reminder.id, () => dismissReminder(reminder.id))}
+                              >
+                                Dismiss
+                              </Button>
+                            </>
+                          )}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={pending}
+                            onClick={() => {
+                              if (!window.confirm(`Delete the reminder "${reminder.title}"?`)) return;
+                              dispose(reminder.id, () => deleteReminder(reminder.id));
+                            }}
+                          >
+                            Delete
+                          </Button>
+                        </div>
                       </div>
                     </div>
-
-                    {reminder.notes ? (
-                      <p className="text-sm leading-6 text-ink-soft">{reminder.notes}</p>
-                    ) : null}
-
-                    {reminder.policyId ? (
-                      <Link
-                        href={`/policies/${reminder.policyId}`}
-                        className="inline-block text-xs font-medium text-brand hover:underline"
-                      >
-                        {reminder.policyTitle ?? "Linked policy"}
-                      </Link>
-                    ) : null}
-
-                    <div className="flex flex-wrap items-center gap-2 border-t border-line pt-2.5">
-                      {reminder.dismissed ? (
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          size="sm"
-                          disabled={pending}
-                          onClick={() => mutate(() => restoreReminder(reminder.id))}
-                        >
-                          <RotateCcw className="size-3.5" />
-                          Restore
-                        </Button>
-                      ) : (
-                        <>
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            disabled={pending}
-                            onClick={() => mutate(() => snoozeReminder(reminder.id, 7))}
-                          >
-                            <AlarmClock className="size-3.5" />
-                            Snooze 7 days
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            disabled={pending}
-                            onClick={() => mutate(() => dismissReminder(reminder.id))}
-                          >
-                            <BellOff className="size-3.5" />
-                            Dismiss
-                          </Button>
-                        </>
-                      )}
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        disabled={pending}
-                        onClick={() => {
-                          if (!window.confirm(`Delete the reminder "${reminder.title}"?`)) return;
-                          mutate(() => deleteReminder(reminder.id));
-                        }}
-                      >
-                        <Trash2 className="size-3.5" />
-                        Delete
-                      </Button>
-                    </div>
-                  </Spine>
-                </Card>
-              </li>
-            );
-          })}
-        </ul>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        ))
       )}
     </div>
   );

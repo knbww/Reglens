@@ -1,30 +1,46 @@
-import type { Prisma } from "@prisma/client";
-import { AlertCircle, Search } from "lucide-react";
+import type { Prisma, PolicyStatus } from "@prisma/client";
 import type { Metadata } from "next";
 import Link from "next/link";
 
 import { PolicyFilters, type PolicyFilterValues } from "@/components/app/policy-filters";
-import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { EmptyState, PageHeader } from "@/components/ui/misc";
-import { Meter, Spine } from "@/components/ui/severity";
-import { PolicyStatusBadge, SampleDataBadge } from "@/components/ui/status";
-import { severityFromImportance } from "@/lib/severity";
 import { jurisdictionName } from "@/data/jurisdictions";
 import { formatDate } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
-import { rankByRelevance } from "@/lib/relevance";
+import { rankByRelevance, relevanceLabel } from "@/lib/relevance";
 import { requireActiveBusiness } from "@/lib/session";
-import { topicLabel } from "@/lib/taxonomy";
+import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Policy search" };
 
+/* This page answers: which recorded requirements might apply to my business? */
+
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
+
+const STATUS_TEXT: Record<PolicyStatus, string> = {
+  IN_FORCE: "In force",
+  PROPOSED: "Proposed",
+  PENDING_EFFECTIVE: "Not yet in force",
+  AMENDED: "Amended",
+  REPEALED: "Repealed",
+};
 
 function readParam(params: Record<string, string | string[] | undefined>, key: string): string {
   const value = params[key];
   return typeof value === "string" ? value : "";
+}
+
+/**
+ * The scorer emits reasons as fragments. Two of them, joined, make the one
+ * sentence that justifies the result being in front of you — which is the
+ * only thing on the row that a general web search could not have told you.
+ */
+function whyItSurfaced(reasons: string[]): string {
+  const trim = (text: string) => text.trim().replace(/\.$/, "");
+  const [first, second] = reasons;
+  if (!first) return "No direct match with your business profile.";
+  if (!second) return `${trim(first)}.`;
+  const tail = trim(second);
+  return `${trim(first)}, and ${tail.charAt(0).toLowerCase()}${tail.slice(1)}.`;
 }
 
 export default async function PoliciesPage({ searchParams }: { searchParams: SearchParams }) {
@@ -101,150 +117,119 @@ export default async function PoliciesPage({ searchParams }: { searchParams: Sea
     ranked.sort((a, b) => order[a.importance] - order[b.importance] || b.relevance.score - a.relevance.score);
   }
 
-  const isInitial =
-    !filters.q &&
-    filters.country === "all" &&
-    filters.jurisdiction === "all" &&
-    filters.industry === "all" &&
-    filters.topic === "all" &&
-    filters.status === "all" &&
-    filters.relevance === "all" &&
-    !filters.effectiveFrom;
+  const narrowed =
+    Boolean(filters.q) ||
+    Boolean(filters.effectiveFrom) ||
+    [
+      filters.country,
+      filters.jurisdiction,
+      filters.industry,
+      filters.topic,
+      filters.status,
+      filters.relevance,
+    ].some((value) => value && value !== "all");
+
+  const count = ranked.length;
+  const plural = count === 1 ? "policy" : "policies";
+  const headline = error
+    ? "The search could not run"
+    : count === 0
+      ? "Nothing matched"
+      : filters.q
+        ? `${count} ${count === 1 ? "result" : "results"} for “${filters.q}”`
+        : narrowed
+          ? `${count} ${plural} match`
+          : `${count} ${plural}, most relevant to you first`;
 
   return (
-    <div className="space-y-5">
-      <PageHeader
-        title="Policy search"
-        description={`Federal, state, provincial and local requirements across North America, ranked against ${business.name}.`}
-      />
+    <div className="mx-auto max-w-4xl pb-10">
+      <header className="rise pb-7">
+        <p className="text-xs text-ink-muted">Policy search · {business.name}</p>
+        <h1 className="mt-3 text-display font-semibold text-balance text-ink">{headline}</h1>
+        <p className="mt-3 max-w-2xl text-[13px] leading-6 text-ink-soft">
+          Federal, state, provincial and local requirements across North America, each ranked against
+          what {business.name} does and where it does it.
+        </p>
+      </header>
 
-      <PolicyFilters initial={filters} resultCount={ranked.length} />
+      <PolicyFilters initial={filters} />
 
       {error ? (
-        <Card>
-          <CardContent className="flex items-start gap-3">
-            <AlertCircle className="mt-0.5 size-5 shrink-0 text-danger" />
-            <div>
-              <p className="text-sm font-medium text-ink">Search could not run</p>
-              <p className="mt-1 text-sm text-ink-muted">{error}</p>
-              <Link href="/policies" className={`${buttonVariants({ variant: "secondary", size: "sm" })} mt-3`}>
-                Reset the search
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
-      ) : ranked.length === 0 ? (
-        <EmptyState
-          icon={<Search className="size-6" />}
-          title="No policies matched"
-          description="Try removing a filter, searching a broader term, or widening the jurisdiction. The MVP dataset covers a representative set of North American requirements rather than every rule in force."
-          action={
-            <Link href="/policies" className={buttonVariants({ size: "sm" })}>
-              Clear filters
-            </Link>
-          }
-        />
+        <section className="mt-8">
+          <p className="text-[15px] leading-7 text-ink-soft">
+            <span className="font-medium text-alert">Search failed.</span> {error}
+          </p>
+          <Link
+            href="/policies"
+            className="mt-3 inline-block text-[15px] text-ink underline decoration-line-strong underline-offset-4"
+          >
+            Reset the search
+          </Link>
+        </section>
+      ) : count === 0 ? (
+        <section className="mt-8">
+          <p className="max-w-2xl text-[15px] leading-7 text-ink-soft">
+            Nothing in the dataset answers that. Try a broader term, a wider jurisdiction, or drop a
+            filter — the records cover a representative set of North American requirements rather than
+            every rule in force.
+          </p>
+          <Link
+            href="/policies"
+            className="mt-3 inline-block text-[15px] text-ink underline decoration-line-strong underline-offset-4"
+          >
+            Clear filters
+          </Link>
+        </section>
       ) : (
         <>
-          {isInitial ? (
-            <p className="text-sm text-ink-muted">
-              Showing every policy in the dataset, most relevant to {business.name} first. Use the filters above
-              to narrow by jurisdiction, topic or status.
-            </p>
-          ) : null}
-
-          <ul className="space-y-2.5">
+          <ul className="mt-6">
             {ranked.map((policy, index) => (
-              <li key={policy.id} style={{ ["--rise-i" as string]: index }} className="slide-in">
-                <Card className="lift hover:border-brand-ring">
-                  <Spine
-                    severity={severityFromImportance(policy.importance)}
-                    label={`${policy.importance.toLowerCase()} importance`}
-                    className="px-5 py-4 pl-6"
+              <li
+                key={policy.id}
+                className={cn(
+                  "border-b border-line py-6 first:pt-0",
+                  index === ranked.length - 1 && "border-b-0",
+                )}
+              >
+                <div className="flex items-baseline justify-between gap-4">
+                  <p className="min-w-0 text-xs text-ink-muted">
+                    {jurisdictionName(policy.jurisdictionCode)} · {policy.agency}
+                  </p>
+                  <p className="shrink-0 text-[13px] text-ink-muted">
+                    {relevanceLabel(policy.relevance.band)}
+                  </p>
+                </div>
+
+                <h2 className="mt-1.5 text-[15px] font-semibold leading-6 text-balance text-ink">
+                  <Link
+                    href={`/policies/${policy.id}`}
+                    className="hover:underline hover:decoration-line-strong hover:underline-offset-4"
                   >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <Link href={`/policies/${policy.id}`} className="group">
-                          <h2 className="text-[15px] font-semibold leading-5 tracking-[-0.006em] text-ink group-hover:text-brand">
-                            {policy.title}
-                          </h2>
-                        </Link>
-                        <p className="mt-1 text-xs text-ink-muted">
-                          {jurisdictionName(policy.jurisdictionCode)} · {policy.agency}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 flex-wrap items-center gap-2">
-                        <Meter
-                          value={policy.relevance.score}
-                          label={`Relevance to ${business.name}: ${policy.relevance.score} of 100`}
-                        />
-                        <PolicyStatusBadge status={policy.status} />
-                      </div>
-                    </div>
+                    {policy.title}
+                  </Link>
+                </h2>
 
-                    {/* The reason this policy is in front of you, promoted from
-                        the last line of the card to directly under the title. */}
-                    <p className="mt-1.5 text-xs font-medium text-ink-soft">
-                      {policy.relevance.reasons[0]}
-                    </p>
+                {/* The reason this record is in front of you. Everything else on
+                    the row is provenance; this line is the product. */}
+                <p className="mt-2 max-w-2xl text-[15px] leading-7 text-ink-soft">
+                  {whyItSurfaced(policy.relevance.reasons)}
+                </p>
 
-                    <p className="mt-2 line-clamp-3 text-sm leading-6 text-ink-soft">
-                      {policy.plainSummary}
-                    </p>
-
-                    <dl className="mt-3 grid gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2 lg:grid-cols-4">
-                      <div>
-                        <dt className="text-ink-muted">Published</dt>
-                        <dd className="tabular text-ink-soft">{formatDate(policy.publishedAt)}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-ink-muted">Effective</dt>
-                        <dd className="tabular text-ink-soft">{formatDate(policy.effectiveAt)}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-ink-muted">Last updated</dt>
-                        <dd className="tabular text-ink-soft">{formatDate(policy.lastUpdatedAt)}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-ink-muted">Who may be affected</dt>
-                        <dd className="text-ink-soft">{policy.affectedOrgs[0] ?? "—"}</dd>
-                      </div>
-                    </dl>
-
-                    {policy.consequences.length > 0 ? (
-                      <p className="mt-2.5 text-xs text-ink-muted">
-                        <span className="font-medium text-ink-soft">If missed: </span>
-                        {policy.consequences.slice(0, 2).join("; ")}
-                      </p>
-                    ) : null}
-
-                    <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                      {policy.topicTags.slice(0, 4).map((tag) => (
-                        <Badge key={tag} tone="neutral">
-                          {topicLabel(tag)}
-                        </Badge>
-                      ))}
-                      {savedIds.has(policy.id) ? <Badge tone="brand">Saved</Badge> : null}
-                      {monitoredIds.has(policy.id) ? <Badge tone="info">Monitored</Badge> : null}
-                      <SampleDataBadge />
-                      <Link
-                        href={`/policies/${policy.id}`}
-                        className={`${buttonVariants({ variant: "secondary", size: "sm" })} ml-auto`}
-                      >
-                        Open policy
-                      </Link>
-                    </div>
-
-                    {policy.relevance.reasons.length > 1 ? (
-                      <p className="mt-2 text-xs text-ink-muted">
-                        {policy.relevance.reasons.slice(1).join(" · ")}
-                      </p>
-                    ) : null}
-                  </Spine>
-                </Card>
+                <p className="mt-2 text-[13px] text-ink-muted">
+                  {STATUS_TEXT[policy.status]} · Effective{" "}
+                  <span className="tabular">{formatDate(policy.effectiveAt)}</span> · Updated{" "}
+                  <span className="tabular">{formatDate(policy.lastUpdatedAt)}</span>
+                  {savedIds.has(policy.id) ? " · Saved" : ""}
+                  {monitoredIds.has(policy.id) ? " · Monitored" : ""}
+                </p>
               </li>
             ))}
           </ul>
+
+          <p className="mt-10 border-t border-line pt-6 text-xs leading-5 text-ink-muted">
+            Each record is an illustrative summary of a real framework, not a live feed from the
+            agency. Open a policy to see its source and the requirements it sets out.
+          </p>
         </>
       )}
     </div>

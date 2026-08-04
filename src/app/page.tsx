@@ -1,206 +1,213 @@
-import {
-  ArrowRight,
-  CalendarClock,
-  ListChecks,
-  Radar,
-  Search,
-  Sparkles,
-  SplitSquareHorizontal,
-} from "lucide-react";
 import Link from "next/link";
 
 import { Logo } from "@/components/app/logo";
-import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { JURISDICTIONS, jurisdictionName } from "@/data/jurisdictions";
+import { POLICIES } from "@/data/policies";
+import { formatDate, formatPolicyDeadlineDate } from "@/lib/format";
 import { getCurrentUser } from "@/lib/session";
 import { DISCLAIMER } from "@/lib/taxonomy";
 
-const CAPABILITIES = [
-  {
-    icon: Search,
-    title: "Find what applies to you",
-    body: "Search federal, state, provincial and local requirements across the United States, Canada and Mexico — filtered to your industry and jurisdictions.",
-  },
-  {
-    icon: Sparkles,
-    title: "Understand it in plain language",
-    body: "The AI Policy Analyst reads your business profile before it answers, so you get what a rule means for your operation, not a general summary.",
-  },
-  {
-    icon: ListChecks,
-    title: "Turn answers into a plan",
-    body: "Every analysis converts into an action plan with checklists and dates you can actually work through.",
-  },
-  {
-    icon: CalendarClock,
-    title: "Never miss a renewal",
-    body: "Filing dates, permit renewals and certification audits become reminders with advance notice inside the app.",
-  },
-  {
-    icon: Radar,
-    title: "See changes before they bite",
-    body: "Monitor the policies, jurisdictions and topics that matter and get a change feed explaining what moved and why.",
-  },
-  {
-    icon: SplitSquareHorizontal,
-    title: "Compare before you expand",
-    body: "Put two or more jurisdictions side by side — requirements, agencies, deadlines and what you would need to prepare.",
-  },
-];
+/*
+ * The question: is this thing worth my account?
+ * The answer is not a list of features — it is one real requirement, shown
+ * the way the product shows it, so the reader can judge the work for
+ * themselves. One primary action: start.
+ */
 
-const AUDIENCE = [
-  "Small and medium-sized businesses",
-  "Startups entering new markets",
-  "Organisations expanding across state, provincial or national borders",
-  "Nonprofits",
-  "Consulting firms and researchers",
-  "Operations managers without a compliance specialist",
-];
+/** The one record on show. Real, from the shipped corpus, not a mock-up. */
+const EXAMPLE = POLICIES.find((p) => p.id === "us-cbp-importer-of-record") ?? POLICIES[0];
 
-const STEPS: [string, string][] = [
-  ["Describe your business once", "A short survey captures your industry, activities, jurisdictions and expansion plans."],
-  ["Get a personalised dashboard", "A risk indicator, your deadlines, recent changes and recommended actions — ranked for your profile."],
-  ["Ask the AI Policy Analyst", "Every answer is grounded in the policy records RegLens retrieved, with sources listed."],
-  ["Work the plan", "Recommendations become tasks with checklists, dates and reminders you can track to done."],
+const AGENCY_COUNT = new Set(POLICIES.map((p) => p.agency)).size;
+const REGION_COUNT = JURISDICTIONS.filter(
+  (j) => j.level === "STATE" || j.level === "PROVINCE" || j.level === "TERRITORY",
+).length;
+
+/** What the product does with a record like the one above it. */
+const WORK: [string, string][] = [
+  [
+    "Narrows it to you",
+    "You describe the business once — what it sells, where it operates, who it employs. Search and ranking run against that profile instead of against everyone's.",
+  ],
+  [
+    "Says it in plain language",
+    "The AI Policy Analyst answers with your profile and the retrieved records in front of it, and lists the records it used so you can check the reasoning.",
+  ],
+  [
+    "Turns it into dated work",
+    "Requirements become tasks with checklists; filing dates and renewals become reminders. The dashboard shows what is late, not what exists.",
+  ],
+  [
+    "Tells you when it moves",
+    "Monitor the policies and jurisdictions that matter and get a change feed that says what changed, in which jurisdiction, and whether it reaches you.",
+  ],
 ];
 
 export default async function LandingPage() {
   const user = await getCurrentUser();
+  const dated = EXAMPLE.deadlines.slice(0, 2);
 
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="border-b border-line bg-surface">
-        <div className="mx-auto flex w-full max-w-6xl items-center gap-4 px-4 py-3.5 sm:px-6">
+      <header className="mx-auto w-full max-w-2xl px-5 py-5">
+        <div className="flex items-center gap-6">
           <Logo />
-          <nav className="ml-auto flex items-center gap-1.5">
-            <Link href="/pricing" className={buttonVariants({ variant: "ghost", size: "md" })}>
+          <nav className="ml-auto flex items-center gap-6 text-[13px] text-ink-soft">
+            <Link href="/pricing" className="transition-colors hover:text-ink">
               Pricing
             </Link>
             {user ? (
-              <Link href="/dashboard" className={buttonVariants({ size: "md" })}>
+              <Link href="/dashboard" className="transition-colors hover:text-ink">
                 Open RegLens
               </Link>
             ) : (
-              <>
-                <Link href="/sign-in" className={buttonVariants({ variant: "secondary", size: "md" })}>
-                  Sign in
-                </Link>
-                <Link href="/sign-up" className={buttonVariants({ size: "md" })}>
-                  Get started
-                </Link>
-              </>
+              <Link href="/sign-in" className="transition-colors hover:text-ink">
+                Sign in
+              </Link>
             )}
           </nav>
         </div>
       </header>
 
-      <main className="flex-1">
-        <section className="border-b border-line bg-surface">
-          <div className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 lg:py-20">
-            <Badge tone="brand">Regulatory intelligence · North America</Badge>
-            <h1 className="mt-4 max-w-3xl text-3xl font-semibold leading-tight tracking-tight text-ink sm:text-4xl lg:text-5xl">
-              Know which rules apply to your business — and what to do about them.
-            </h1>
-            <p className="mt-4 max-w-2xl text-base leading-7 text-ink-soft">
-              RegLens turns regulation into something a small team can manage. Tell it how your organisation
-              operates once, and it finds the requirements that apply, explains them in plain language, and
-              keeps track of the deadlines.
-            </p>
-            <div className="mt-7 flex flex-wrap items-center gap-3">
+      <main className="mx-auto w-full max-w-2xl flex-1 px-5">
+        <section className="rise pb-14 pt-10 sm:pt-16">
+          <p className="text-xs text-ink-muted">
+            Regulatory compliance · United States, Canada and Mexico
+          </p>
+
+          <h1 className="mt-3 text-display font-semibold text-balance text-ink">
+            Know which rules apply to your business, and what to do about them.
+          </h1>
+
+          <p className="mt-4 text-[15px] leading-7 text-ink-soft">
+            You sell, ship or hire across a border, and you are the person who has to keep it
+            legal. Somewhere in three countries&rsquo; rulebooks is the short list that actually
+            reaches your business. RegLens finds that list, explains it in plain language, and
+            turns it into dated work you can finish.
+          </p>
+
+          <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
+            {user ? (
+              <Link href="/dashboard" className={buttonVariants({ size: "lg" })}>
+                Open RegLens
+              </Link>
+            ) : (
               <Link href="/sign-up" className={buttonVariants({ size: "lg" })}>
                 Create an account
-                <ArrowRight className="size-4" />
               </Link>
-              <Link href="/sign-in?demo=1" className={buttonVariants({ variant: "secondary", size: "lg" })}>
-                Explore the demo
-              </Link>
-            </div>
-            <p className="mt-3 text-xs text-ink-muted">
-              The demo loads five example businesses — a cross-border e-commerce brand, an apparel importer, a
-              tutoring centre, a kitchen robotics supplier and a telecom operator.
+            )}
+            <Link
+              href="/sign-in?demo=1"
+              className="text-[13px] text-ink-soft underline decoration-line-strong underline-offset-4 transition-colors hover:text-ink"
+            >
+              Or look around the demo first
+            </Link>
+          </div>
+
+          <p className="mt-3 text-[13px] leading-6 text-ink-muted">
+            The demo loads five example businesses — a cross-border e-commerce brand, an apparel
+            importer, a tutoring centre, a kitchen robotics supplier and a telecom operator.
+          </p>
+        </section>
+
+        <section className="border-t border-line pt-10">
+          <h2 className="text-title font-semibold text-ink">One requirement, in full</h2>
+          <p className="mt-2 text-[13px] leading-6 text-ink-muted">
+            A record from the shipped dataset, shown the way RegLens shows it. Nothing here is a
+            mock-up.
+          </p>
+
+          <div className="mt-8">
+            <p className="text-xs text-ink-muted">
+              {EXAMPLE.agency} · {jurisdictionName(EXAMPLE.jurisdictionCode)}
+            </p>
+
+            <h3 className="mt-2 text-title font-semibold text-balance text-ink">{EXAMPLE.title}</h3>
+
+            <p className="mt-3 text-[15px] leading-7 text-ink-soft">{EXAMPLE.plainSummary}</p>
+
+            <h4 className="mt-8 text-xs font-medium text-ink-muted">What it asks of you</h4>
+            <ul className="mt-1">
+              {EXAMPLE.requirements.slice(0, 4).map((requirement) => (
+                <li key={requirement.title} className="border-b border-line py-3.5 last:border-b-0">
+                  <p className="text-[15px] text-ink">{requirement.title}</p>
+                  <p className="mt-1 text-[13px] leading-6 text-ink-soft">{requirement.detail}</p>
+                </li>
+              ))}
+            </ul>
+
+            <h4 className="mt-8 text-xs font-medium text-ink-muted">
+              What it puts on your calendar
+            </h4>
+            <ul className="mt-1">
+              {dated.map((deadline) => (
+                <li key={deadline.label} className="border-b border-line py-3.5 last:border-b-0">
+                  <div className="flex flex-wrap items-baseline gap-x-3">
+                    <p className="text-[15px] text-ink">{deadline.label}</p>
+                    <p className="tabular text-[13px] text-ink-muted">
+                      {formatPolicyDeadlineDate(deadline.date)}
+                    </p>
+                  </div>
+                  <p className="mt-1 text-[13px] leading-6 text-ink-soft">{deadline.description}</p>
+                </li>
+              ))}
+            </ul>
+
+            <p className="mt-6 text-[13px] leading-6 text-ink-muted">
+              Source:{" "}
+              <a
+                href={EXAMPLE.sourceUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-ink-soft underline decoration-line-strong underline-offset-4 transition-colors hover:text-ink"
+              >
+                {EXAMPLE.sourceName}
+              </a>{" "}
+              · summary last reviewed {formatDate(EXAMPLE.lastUpdatedAt)}
             </p>
           </div>
         </section>
 
-        <section className="mx-auto w-full max-w-6xl px-4 py-14 sm:px-6">
-          <h2 className="text-lg font-semibold tracking-tight text-ink">What RegLens does</h2>
-          <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {CAPABILITIES.map((item) => {
-              const Icon = item.icon;
-              return (
-                <Card key={item.title}>
-                  <CardContent>
-                    <span className="flex size-9 items-center justify-center rounded-lg bg-brand-soft text-brand">
-                      <Icon className="size-4" />
-                    </span>
-                    <h3 className="mt-3 text-sm font-semibold text-ink">{item.title}</h3>
-                    <p className="mt-1.5 text-sm leading-6 text-ink-soft">{item.body}</p>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
+        <section className="mt-14 border-t border-line pt-10">
+          <h2 className="text-title font-semibold text-ink">What RegLens does with it</h2>
+          <ul className="mt-6">
+            {WORK.map(([title, body]) => (
+              <li key={title} className="border-b border-line py-4 last:border-b-0">
+                <p className="text-[15px] font-medium text-ink">{title}</p>
+                <p className="mt-1 text-[15px] leading-7 text-ink-soft">{body}</p>
+              </li>
+            ))}
+          </ul>
         </section>
 
-        <section className="border-y border-line bg-surface">
-          <div className="mx-auto grid w-full max-w-6xl gap-10 px-4 py-14 sm:px-6 lg:grid-cols-2">
-            <div>
-              <h2 className="text-lg font-semibold tracking-tight text-ink">How it works</h2>
-              <ol className="mt-4 space-y-4">
-                {STEPS.map(([title, body], index) => (
-                  <li key={title} className="flex gap-3">
-                    <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-brand text-xs font-semibold text-white tabular">
-                      {index + 1}
-                    </span>
-                    <span>
-                      <span className="block text-sm font-medium text-ink">{title}</span>
-                      <span className="mt-0.5 block text-sm leading-6 text-ink-soft">{body}</span>
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold tracking-tight text-ink">Who it is for</h2>
-              <ul className="mt-4 grid gap-2">
-                {AUDIENCE.map((item) => (
-                  <li key={item} className="rounded-lg border border-line bg-canvas px-3 py-2 text-sm text-ink-soft">
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </section>
-
-        <section className="mx-auto w-full max-w-6xl px-4 py-14 sm:px-6">
-          <Card>
-            <CardContent className="sm:px-6">
-              <h2 className="text-sm font-semibold text-ink">How to read RegLens output</h2>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-soft">{DISCLAIMER}</p>
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-ink-muted">
-                The MVP ships with a curated set of sample policy records that summarise real regulatory
-                frameworks in plain language. Every record links to the responsible agency and is labelled as
-                sample data — RegLens does not present invented records as confirmed live law.
-              </p>
-            </CardContent>
-          </Card>
+        {/* Reference material, last and visibly quieter. */}
+        <section className="mt-14 border-t border-line pb-16 pt-10">
+          <h2 className="text-xs font-medium text-ink-muted">About the data</h2>
+          <p className="mt-3 text-[13px] leading-6 text-ink-soft">
+            Your profile and jurisdiction comparisons can name any of the {REGION_COUNT} states,
+            provinces and territories across the United States, Canada and Mexico. The policy
+            corpus itself is deliberately curated: {POLICIES.length} records drawn from{" "}
+            {AGENCY_COUNT} agencies, at federal, state and provincial, county and city level.
+          </p>
+          <p className="mt-3 text-[13px] leading-6 text-ink-soft">
+            Every record summarises a real regulatory framework in plain language, names the
+            responsible agency, links to an official source and is labelled as sample data in the
+            product. RegLens does not present invented records as confirmed live law.
+          </p>
+          <p className="mt-3 text-[13px] leading-6 text-ink-muted">{DISCLAIMER}</p>
         </section>
       </main>
 
-      <footer className="border-t border-line bg-surface">
-        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-6 text-xs text-ink-muted sm:px-6">
-          <Logo />
-          <div className="flex flex-wrap items-center gap-4">
-            <Link href="/pricing" className="hover:text-ink">
-              Pricing
-            </Link>
-            <Link href="/legal" className="hover:text-ink">
-              Legal &amp; disclaimer
-            </Link>
-            <span>© {new Date().getFullYear()} RegLens AI</span>
-          </div>
+      <footer className="mx-auto w-full max-w-2xl px-5 pb-10">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-line pt-6 text-xs text-ink-muted">
+          <Logo showWordmark={false} />
+          <Link href="/pricing" className="transition-colors hover:text-ink">
+            Pricing
+          </Link>
+          <Link href="/legal" className="transition-colors hover:text-ink">
+            Legal &amp; disclaimer
+          </Link>
+          <span className="ml-auto">© {new Date().getFullYear()} RegLens AI</span>
         </div>
       </footer>
     </div>

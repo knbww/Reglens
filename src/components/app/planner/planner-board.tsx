@@ -1,16 +1,12 @@
 "use client";
 
 import type { TaskPriority, TaskStatus } from "@prisma/client";
-import { ListChecks, Plus, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
-import { PlanProgressRing } from "@/components/app/planner/plan-progress-ring";
-import { TaskCard, type PlannerTask } from "@/components/app/planner/task-card";
+import { TaskRow, type PlannerTask } from "@/components/app/planner/task-row";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
-import { EmptyState } from "@/components/ui/misc";
 import { createTask, deleteActionPlan } from "@/lib/actions/tasks";
 import { daysUntil } from "@/lib/format";
 import { TASK_CATEGORIES } from "@/lib/taxonomy";
@@ -108,6 +104,10 @@ export function PlannerBoard({
     });
 
     return [...list].sort((a, b) => {
+      // Finished work always sinks, whatever the chosen order. Receding is the
+      // point: it stays available without ever sitting above live work.
+      const settled = Number(a.status === "COMPLETED") - Number(b.status === "COMPLETED");
+      if (settled !== 0) return settled;
       if (sort === "priority") return PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
       if (sort === "status") return STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
       if (sort === "title") return a.title.localeCompare(b.title);
@@ -174,77 +174,61 @@ export function PlannerBoard({
 
   const ungrouped = filtered.filter((t) => !t.planId);
   const visibleIds = new Set(filtered.map((t) => t.id));
+  const visiblePlans = plans.filter((plan) => plan.taskIds.some((id) => visibleIds.has(id)));
 
   return (
-    <div className="space-y-4">
+    <div className="rise">
       {/* -------------------------------------------------- Filter bar */}
-      <div className="flex flex-wrap items-center gap-2 rounded-card border border-line bg-surface p-3">
-        <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap items-center gap-x-1 gap-y-2 border-b border-line pb-3">
+        <div className="-ml-2.5 flex flex-wrap items-center">
           {FILTERS.map((f) => (
             <button
               key={f.key}
               type="button"
+              aria-pressed={filter === f.key}
               onClick={() => setFilter(f.key)}
               className={cn(
-                "rounded-full border px-2.5 py-1 text-xs transition-colors",
+                "rounded-md px-2.5 py-1 text-[13px] transition-colors",
                 filter === f.key
-                  ? "border-brand bg-brand-soft font-medium text-brand"
-                  : "border-line text-ink-soft hover:border-brand-ring",
+                  ? "bg-surface-muted font-medium text-ink"
+                  : "text-ink-muted hover:text-ink",
               )}
             >
-              {f.label}
-              <span className="ml-1.5 tabular opacity-70">{counts[f.key]}</span>
+              {f.label} <span className="tabular text-ink-muted">{counts[f.key]}</span>
             </button>
           ))}
         </div>
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1.5 text-xs text-ink-muted">
-            <span aria-hidden>Sort</span>
-            <Select
-              aria-label="Sort tasks by"
-              value={sort}
-              onChange={(e) => setSort(e.target.value)}
-              className="h-8 w-36 text-xs"
-            >
-              {SORTS.map((s) => (
-                <option key={s.key} value={s.key}>
-                  {s.label}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            onClick={() => setGroupByPlan((v) => !v)}
+          <Select
+            aria-label="Sort tasks by"
+            value={sort}
+            onChange={(e) => setSort(e.target.value)}
+            className="h-8 w-32 text-[13px]"
           >
+            {SORTS.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.label}
+              </option>
+            ))}
+          </Select>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setGroupByPlan((v) => !v)}>
             {groupByPlan ? "Show flat list" : "Group by plan"}
           </Button>
-          <Button type="button" size="sm" onClick={() => setCreating((v) => !v)}>
-            <Plus className="size-3.5" />
-            New task
-          </Button>
+          {creating ? null : (
+            <Button type="button" size="sm" onClick={() => setCreating(true)}>
+              New task
+            </Button>
+          )}
         </div>
       </div>
 
       {/* -------------------------------------------------- New task form */}
       {creating ? (
-        <Card>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-ink">New task</h2>
-              <button
-                type="button"
-                aria-label="Close"
-                onClick={() => setCreating(false)}
-                className="rounded p-1 text-ink-muted hover:bg-surface-muted hover:text-ink"
-              >
-                <X className="size-4" />
-              </button>
-            </div>
+        <div className="border-b border-line py-6">
+          <h2 className="text-title font-semibold text-ink">New task</h2>
 
+          <div className="mt-4 max-w-2xl space-y-4">
             <Field label="Title">
               <Input
                 value={draft.title}
@@ -262,7 +246,7 @@ export function PlannerBoard({
               />
             </Field>
 
-            <div className="grid gap-3 sm:grid-cols-4">
+            <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Category">
                 <Select
                   value={draft.category}
@@ -278,7 +262,9 @@ export function PlannerBoard({
               <Field label="Priority">
                 <Select
                   value={draft.priority}
-                  onChange={(e) => setDraft((d) => ({ ...d, priority: e.target.value as TaskPriority }))}
+                  onChange={(e) =>
+                    setDraft((d) => ({ ...d, priority: e.target.value as TaskPriority }))
+                  }
                 >
                   {(["LOW", "MEDIUM", "HIGH", "URGENT"] as TaskPriority[]).map((p) => (
                     <option key={p} value={p}>
@@ -318,111 +304,112 @@ export function PlannerBoard({
               />
             </Field>
 
-            {error ? <p className="text-xs text-danger">{error}</p> : null}
+            {error ? <p className="text-[13px] text-danger">{error}</p> : null}
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               <Button type="button" onClick={submitNewTask} disabled={pending}>
                 {pending ? "Creating…" : "Create task"}
               </Button>
-              <Button type="button" variant="ghost" onClick={() => setCreating(false)} disabled={pending}>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setCreating(false)}
+                disabled={pending}
+              >
                 Cancel
               </Button>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       ) : null}
 
       {/* -------------------------------------------------- Task list */}
       {filtered.length === 0 ? (
-        <EmptyState
-          icon={<ListChecks className="size-6" />}
-          title={tasks.length === 0 ? "No tasks yet" : "No tasks match this filter"}
-          description={
-            tasks.length === 0
-              ? "Create an action plan from a policy or an AI Analyst answer, or add a task directly."
-              : "Try a different filter to see the rest of your work."
-          }
-          action={
-            <Button type="button" size="sm" onClick={() => setCreating(true)}>
-              <Plus className="size-3.5" />
-              Add a task
-            </Button>
-          }
-        />
+        <div className="py-14">
+          <p className="text-title font-semibold text-ink">
+            {tasks.length === 0 ? "No work planned yet" : "Nothing matches this filter"}
+          </p>
+          <p className="mt-3 max-w-md text-[15px] leading-7 text-ink-soft">
+            {tasks.length === 0
+              ? "Create an action plan from a policy or an AI Analyst answer, or add a task directly with New task."
+              : "Try another filter to see the rest of your work."}
+          </p>
+        </div>
       ) : groupByPlan ? (
-        <div className="space-y-5">
-          {plans
-            .filter((plan) => plan.taskIds.some((id) => visibleIds.has(id)))
-            .map((plan) => {
-              const planTasks = filtered.filter((t) => t.planId === plan.id);
-              const completed = planTasks.filter((t) => t.status === "COMPLETED").length;
-              return (
-                <section key={plan.id} id={`plan-${plan.id}`} className="space-y-2">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="flex min-w-0 items-start gap-3">
-                      <PlanProgressRing
-                        done={completed}
-                        total={planTasks.length}
-                        className="mt-0.5 shrink-0"
-                      />
-                      <div className="min-w-0">
-                        <h2 className="text-[15px] font-semibold tracking-[-0.006em] text-ink">
-                          {plan.title}
-                        </h2>
-                        <p className="mt-0.5 text-xs leading-5 text-ink-muted">{plan.description}</p>
-                        <p className="tabular mt-1 text-xs text-ink-muted">
-                          {completed}/{planTasks.length} complete · source:{" "}
-                          {plan.source.toLowerCase().replace(/_/g, " ")}
-                        </p>
-                      </div>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      disabled={pending}
-                      onClick={() => {
-                        if (!window.confirm(`Delete the plan "${plan.title}" and its tasks?`)) return;
-                        run(async () => {
-                          await deleteActionPlan(plan.id);
-                          router.refresh();
-                        });
-                      }}
-                    >
-                      <Trash2 className="size-3.5" />
-                      Delete plan
-                    </Button>
+        <div>
+          {visiblePlans.map((plan) => {
+            const planTasks = filtered.filter((t) => t.planId === plan.id);
+            const complete = planTasks.filter((t) => t.status === "COMPLETED").length;
+            return (
+              <section key={plan.id} id={`plan-${plan.id}`} className="pt-8 first:pt-6">
+                <div className="border-b border-line pb-2.5">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                    <h2 className="text-[15px] font-medium text-ink">{plan.title}</h2>
+                    <p className="tabular shrink-0 text-xs text-ink-muted">
+                      {complete} of {planTasks.length} done · from{" "}
+                      {plan.source.toLowerCase().replace(/_/g, " ")}
+                    </p>
                   </div>
-                  <div className="space-y-2">
-                    {planTasks.map((task) => (
-                      <TaskCard
-                        key={task.id}
-                        task={task}
-                        defaultOpen={task.id === openTaskId || plan.id === openPlanId}
-                      />
-                    ))}
-                  </div>
-                </section>
-              );
-            })}
+                  {plan.description ? (
+                    <p className="mt-1.5 max-w-2xl text-[13px] leading-6 text-ink-muted">
+                      {plan.description}
+                    </p>
+                  ) : null}
+                </div>
+
+                {/* Indentation is the only thing saying "these belong to that". */}
+                <ul className="pl-4 sm:pl-7">
+                  {planTasks.map((task) => (
+                    <TaskRow
+                      key={task.id}
+                      task={task}
+                      defaultOpen={task.id === openTaskId || plan.id === openPlanId}
+                    />
+                  ))}
+                </ul>
+
+                <div className="pl-1 pt-2 sm:pl-4">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={pending}
+                    onClick={() => {
+                      if (!window.confirm(`Delete the plan "${plan.title}" and its tasks?`)) return;
+                      run(async () => {
+                        await deleteActionPlan(plan.id);
+                        router.refresh();
+                      });
+                    }}
+                  >
+                    Delete plan
+                  </Button>
+                </div>
+              </section>
+            );
+          })}
 
           {ungrouped.length > 0 ? (
-            <section className="space-y-2">
-              <h2 className="text-sm font-semibold text-ink">Standalone tasks</h2>
-              <div className="space-y-2">
+            <section className="pt-8 first:pt-6">
+              {visiblePlans.length > 0 ? (
+                <div className="border-b border-line pb-2.5">
+                  <h2 className="text-[15px] font-medium text-ink">Not part of a plan</h2>
+                </div>
+              ) : null}
+              <ul className={cn(visiblePlans.length > 0 && "pl-4 sm:pl-7")}>
                 {ungrouped.map((task) => (
-                  <TaskCard key={task.id} task={task} defaultOpen={task.id === openTaskId} />
+                  <TaskRow key={task.id} task={task} defaultOpen={task.id === openTaskId} />
                 ))}
-              </div>
+              </ul>
             </section>
           ) : null}
         </div>
       ) : (
-        <div className="space-y-2">
+        <ul className="pt-2">
           {filtered.map((task) => (
-            <TaskCard key={task.id} task={task} defaultOpen={task.id === openTaskId} showPlan />
+            <TaskRow key={task.id} task={task} defaultOpen={task.id === openTaskId} showPlan />
           ))}
-        </div>
+        </ul>
       )}
     </div>
   );

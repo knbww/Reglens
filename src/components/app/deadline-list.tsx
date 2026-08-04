@@ -1,7 +1,6 @@
 import Link from "next/link";
 
 import { formatDate } from "@/lib/format";
-import { SEVERITY_TEXT, severityFromDays, type Severity } from "@/lib/severity";
 import { cn } from "@/lib/utils";
 
 export type DeadlineEntry = {
@@ -16,7 +15,6 @@ export type DeadlineEntry = {
 type Bucket = {
   key: string;
   label: string;
-  severity: Severity;
   /** Upper bound in days, inclusive. `null` means everything remaining. */
   upTo: number | null;
 };
@@ -27,10 +25,10 @@ type Bucket = {
  * same fact as three dots clustered near the left edge, minus the squinting.
  */
 const BUCKETS: Bucket[] = [
-  { key: "overdue", label: "Overdue", severity: "over", upTo: -1 },
-  { key: "week", label: "Next 7 days", severity: "act", upTo: 7 },
-  { key: "month", label: "Next 30 days", severity: "watch", upTo: 30 },
-  { key: "later", label: "Later", severity: "clear", upTo: null },
+  { key: "overdue", label: "Overdue", upTo: -1 },
+  { key: "week", label: "Next 7 days", upTo: 7 },
+  { key: "month", label: "Next 30 days", upTo: 30 },
+  { key: "later", label: "Later", upTo: null },
 ];
 
 function daysBetween(from: Date, to: Date): number {
@@ -40,7 +38,7 @@ function daysBetween(from: Date, to: Date): number {
 }
 
 function dueLabel(days: number): string {
-  if (days < 0) return `${Math.abs(days)}d overdue`;
+  if (days < 0) return `${Math.abs(days)}d late`;
   if (days === 0) return "today";
   if (days === 1) return "tomorrow";
   return `${days}d`;
@@ -52,7 +50,7 @@ function dueLabel(days: number): string {
  * Deliberately not a chart. With a handful of items a time axis encodes only
  * density, needs a hover to identify anything, and then repeats itself in the
  * list underneath. A grouped list says the same thing in less space and can be
- * read rather than decoded.
+ * read rather than decoded. Only the overdue group is allowed colour.
  */
 export function DeadlineList({
   entries,
@@ -87,16 +85,16 @@ export function DeadlineList({
   const hiddenTotal = shown.reduce((sum, group) => sum + group.hidden, 0);
 
   return (
-    <div className="space-y-3">
+    <div>
       {shown
         .filter((group) => group.visible.length > 0)
         .map((group) => (
-          <div key={group.bucket.key}>
-            <div className="flex items-baseline gap-2 border-b border-line pb-1.5">
+          <section key={group.bucket.key} className="pt-5 first:pt-0">
+            <div className="flex items-baseline justify-between gap-3 border-b border-line pb-1.5">
               <h3
                 className={cn(
-                  "text-xs font-semibold",
-                  group.bucket.key === "overdue" ? SEVERITY_TEXT.over : "text-ink",
+                  "text-xs font-medium",
+                  group.bucket.key === "overdue" ? "text-alert" : "text-ink-muted",
                 )}
               >
                 {group.bucket.label}
@@ -105,16 +103,13 @@ export function DeadlineList({
             </div>
 
             <ul>
-              {group.visible.map((item, index) => {
-                const severity = severityFromDays(item.days);
+              {group.visible.map((item) => {
                 const row = (
                   <>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13px] text-ink">{item.title}</span>
                       {item.context ? (
-                        <span className="block truncate text-[11px] text-ink-muted">
-                          {item.context}
-                        </span>
+                        <span className="block truncate text-xs text-ink-muted">{item.context}</span>
                       ) : null}
                     </span>
                     <span className="tabular shrink-0 text-xs text-ink-muted">
@@ -122,8 +117,8 @@ export function DeadlineList({
                     </span>
                     <span
                       className={cn(
-                        "tabular w-20 shrink-0 text-right text-xs font-medium",
-                        SEVERITY_TEXT[severity],
+                        "tabular w-16 shrink-0 text-right text-xs",
+                        item.days < 0 ? "font-medium text-alert" : "text-ink-muted",
                       )}
                     >
                       {dueLabel(item.days)}
@@ -132,31 +127,30 @@ export function DeadlineList({
                 );
 
                 return (
-                  <li
-                    key={item.id}
-                    style={{ ["--rise-i" as string]: index }}
-                    className="slide-in border-b border-line last:border-b-0"
-                  >
+                  <li key={item.id} className="border-b border-line last:border-b-0">
                     {item.href ? (
                       <Link
                         href={item.href}
-                        className="-mx-2 flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-surface-muted"
+                        className="lift -mx-3 flex items-center gap-3 rounded-md px-3 py-2.5"
                       >
                         {row}
                       </Link>
                     ) : (
-                      <div className="flex items-center gap-3 py-2">{row}</div>
+                      <div className="flex items-center gap-3 py-2.5">{row}</div>
                     )}
                   </li>
                 );
               })}
             </ul>
-          </div>
+          </section>
         ))}
 
       {hiddenTotal > 0 ? (
-        <Link href={moreHref} className="block text-xs font-medium text-brand hover:underline">
-          {hiddenTotal} more dated {hiddenTotal === 1 ? "obligation" : "obligations"} →
+        <Link
+          href={moreHref}
+          className="mt-4 inline-block text-[13px] text-ink-soft underline decoration-line-strong underline-offset-4 hover:text-ink"
+        >
+          {hiddenTotal} more dated {hiddenTotal === 1 ? "obligation" : "obligations"}
         </Link>
       ) : null}
     </div>

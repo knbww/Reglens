@@ -6,63 +6,87 @@
  * used decoratively.
  */
 @theme {
-  --color-canvas: #f6f7f9;
+  /*
+   * RegLens is a register, not a dashboard.
+   *
+   * Ink on paper, with a single hue carrying authority. Two colours in the
+   * whole product: seal green for anything the system asserts or you can act
+   * on, and one red that only ever means late. Everything else is neutral, so
+   * the two that remain are unmissable.
+   */
+
+  /* Paper is very slightly cool and never pure white, so white surfaces can
+     sit on it and read as sheets rather than as holes. */
+  --color-canvas: #f4f5f3;
   --color-surface: #ffffff;
-  --color-surface-muted: #fafbfc;
-  --color-line: #e3e6ea;
-  --color-line-strong: #cdd3da;
+  --color-surface-muted: #ebedea;
+  --color-line: #dcdfda;
+  --color-line-strong: #bcc0b9;
 
-  --color-ink: #101828;
-  --color-ink-soft: #475467;
-  --color-ink-muted: #77839a;
-
-  --color-brand: #17518c;
-  --color-brand-hover: #123f6d;
-  --color-brand-soft: #eaf1f8;
-  --color-brand-ring: #9dbcdc;
-
-  --color-success: #067647;
-  --color-success-soft: #e7f6ee;
-  --color-warning: #b54708;
-  --color-warning-soft: #fdf3e7;
-  --color-danger: #b42318;
-  --color-danger-soft: #fdeceb;
-  --color-critical: #7a1410;
-  --color-critical-soft: #fbe4e2;
-  --color-info: #175cd3;
-  --color-info-soft: #eaf0fc;
+  /* Ink, cool and dense. Not switched-off pixels. */
+  --color-ink: #14171a;
+  --color-ink-soft: #4c5459;
+  --color-ink-muted: #7e878b;
 
   /*
-   * Severity ramp. Four ordered rungs — clear / watch / act / overdue — so a
-   * colour always answers "how urgent is this", never "which enum is this".
-   * Applied to data (spines, bars, dots, counts), never as a decorative fill.
-   * Ordered by lightness as well as hue so the sequence survives CVD.
+   * Seal green. Customs stamps, treasury seals, filing endorsements — the
+   * colour of officialdom, and conspicuously not the blue every SaaS reaches
+   * for. Primary actions, active navigation, links.
    */
-  --color-sev-clear: #1f8f63;
-  --color-sev-watch: #b8830c;
-  --color-sev-act: #cf5f1c;
-  --color-sev-over: #b32218;
-  --color-sev-clear-soft: #e8f4ee;
-  --color-sev-watch-soft: #fbf2df;
-  --color-sev-act-soft: #fbecdf;
-  --color-sev-over-soft: #fbe7e5;
+  --color-seal: #1d4634;
+  --color-seal-hover: #143025;
+  --color-seal-soft: #e4ebe6;
+  --color-seal-line: #a9bdb1;
 
-  --radius-card: 0.75rem;
+  /* The only other colour. It means late, and nothing else, ever. */
+  --color-alert: #a02015;
+  --color-alert-soft: #f7e6e3;
+
+  /* Kept so legacy call sites compile while screens are reworked. Do not use
+     these in new work — they resolve to the two colours above or to ink. */
+  --color-brand: var(--color-seal);
+  --color-brand-hover: var(--color-seal-hover);
+  --color-brand-soft: var(--color-seal-soft);
+  --color-brand-ring: var(--color-seal-line);
+  --color-danger: var(--color-alert);
+  --color-danger-soft: var(--color-alert-soft);
+  --color-critical: var(--color-alert);
+  --color-critical-soft: var(--color-alert-soft);
+  --color-success: var(--color-seal);
+  --color-success-soft: var(--color-seal-soft);
+  --color-warning: var(--color-ink-soft);
+  --color-warning-soft: var(--color-surface-muted);
+  --color-info: var(--color-ink-soft);
+  --color-info-soft: var(--color-surface-muted);
+  --color-sev-clear: var(--color-ink-muted);
+  --color-sev-watch: var(--color-ink-soft);
+  --color-sev-act: var(--color-ink);
+  --color-sev-over: var(--color-alert);
+  --color-sev-clear-soft: var(--color-surface-muted);
+  --color-sev-watch-soft: var(--color-surface-muted);
+  --color-sev-act-soft: var(--color-surface-muted);
+  --color-sev-over-soft: var(--color-alert-soft);
+
+  --radius-card: 0.25rem;
 
   /*
-   * Type scale. Only the top of the scale moved: the page title had 9px of
-   * range over body copy, which is not enough for an application to have a
-   * beginning. Small sizes are unchanged, so density is unaffected.
+   * A register's scale: one large size for the page's answer, one for section
+   * heads, and a long readable middle. Nothing enormous — authority comes from
+   * spacing and restraint, not from 60px numerals.
    */
-  --text-display: 2rem;
-  --text-display--line-height: 1.1;
-  --text-display--letter-spacing: -0.025em;
-  --text-title: 1.25rem;
-  --text-title--line-height: 1.25;
-  --text-title--letter-spacing: -0.018em;
+  --text-figure: 2.75rem;
+  --text-figure--line-height: 1;
+  --text-figure--letter-spacing: -0.03em;
+  --text-display: 1.75rem;
+  --text-display--line-height: 1.2;
+  --text-display--letter-spacing: -0.02em;
+  --text-title: 1.125rem;
+  --text-title--line-height: 1.35;
+  --text-title--letter-spacing: -0.011em;
 
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-sans: var(--font-sans-face), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-sans-face), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono-face), ui-monospace, "SFMono-Regular", monospace;
 }
 
 :root {
@@ -159,9 +183,13 @@ body {
   }
 }
 
+/*
+ * No stagger. A cascade of cards arriving one after another is the most
+ * obvious tell that a page was decorated rather than designed — and on the
+ * second visit it is purely a delay. One quiet fade for the whole region.
+ */
 .rise {
-  animation: reglens-rise var(--dur-slow) var(--ease-out) both;
-  animation-delay: calc(min(var(--rise-i, 0), 8) * 40ms);
+  animation: reglens-rise 180ms var(--ease-out) both;
 }
 
 /* Rows in a feed settle in from the leading edge rather than from below. */
@@ -177,21 +205,37 @@ body {
 }
 
 .slide-in {
-  animation: reglens-slide-in var(--dur-base) var(--ease-out) both;
-  animation-delay: calc(min(var(--rise-i, 0), 10) * 30ms);
+  animation: reglens-rise 180ms var(--ease-out) both;
 }
 
-/* Cards lift very slightly on hover — enough to read as interactive. */
+/*
+ * An item leaving the queue. The only animation in the product that carries
+ * meaning rather than polish: it is the feedback that the thing is dealt with
+ * and the count has gone down.
+ */
+@keyframes reglens-dispose {
+  to {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+}
+
+.dispose {
+  animation: reglens-dispose 170ms var(--ease-out) forwards;
+  pointer-events: none;
+}
+
+/*
+ * Rows respond by changing ground, not by floating. Lifting and shadowing a
+ * whole card on hover is theatre; a background step is what a dense list
+ * actually needs to show you where the cursor is.
+ */
 .lift {
-  transition:
-    border-color var(--dur-fast) var(--ease-out),
-    box-shadow var(--dur-base) var(--ease-out),
-    transform var(--dur-base) var(--ease-out);
+  transition: background-color var(--dur-fast) var(--ease-out);
 }
 
 .lift:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px -8px rgb(16 24 40 / 0.18);
+  background-color: var(--color-surface-muted);
 }
 
 /* Bars and arcs grow to their value on first paint. */

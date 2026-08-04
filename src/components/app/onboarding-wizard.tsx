@@ -1,16 +1,15 @@
 "use client";
 
-import { AlertCircle, ArrowLeft, ArrowRight, Check, Search } from "lucide-react";
+import { Check, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { JurisdictionPicker } from "@/components/app/jurisdiction-picker";
 import { TagInput } from "@/components/app/tag-input";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Checkbox, Field, Input, Select, Textarea, ToggleCard } from "@/components/ui/field";
+import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/field";
 import { ProgressBar } from "@/components/ui/misc";
-import { regionsForCountry } from "@/data/jurisdictions";
+import { jurisdictionName, regionsForCountry } from "@/data/jurisdictions";
 import { saveOnboarding } from "@/lib/actions/business";
 import { EMPTY_ONBOARDING, type OnboardingInput } from "@/lib/schemas/onboarding";
 import {
@@ -22,22 +21,108 @@ import {
   REVIEW_FREQUENCIES,
   SIZE_BANDS,
   TRACKING_METHODS,
+  countryName,
+  topicLabel,
 } from "@/lib/taxonomy";
 import { cn } from "@/lib/utils";
 import { useAction } from "@/lib/use-action";
 
+/**
+ * One question per step, asked in the order a person would ask them. `title`
+ * is the word used in the progress trail; `question` is what the step actually
+ * wants to know and stands as the page's heading while that step is open.
+ */
 const STEPS = [
-  { key: "company", title: "Company", blurb: "Who you are and where you operate." },
-  { key: "industry", title: "Industry", blurb: "What kind of organisation this is." },
-  { key: "activities", title: "Activities", blurb: "What you actually do day to day." },
-  { key: "expansion", title: "Expansion", blurb: "Where you are heading next." },
-  { key: "priorities", title: "Priorities", blurb: "What you want RegLens to watch." },
-  { key: "workflow", title: "Today", blurb: "How compliance is handled now." },
+  {
+    key: "company",
+    title: "Company",
+    question: "Tell us about the business",
+    blurb: "Who you are, and where you answer to a regulator. Six short questions, about three minutes.",
+  },
+  {
+    key: "industry",
+    title: "Industry",
+    question: "What kind of business is it?",
+    blurb: "Pick the closest description. It decides which body of rules RegLens reads first.",
+  },
+  {
+    key: "activities",
+    title: "Activities",
+    question: "What does the business actually do?",
+    blurb: "Plain facts about the work. Each one switches on a different set of obligations.",
+  },
+  {
+    key: "expansion",
+    title: "Expansion",
+    question: "Are you heading anywhere new?",
+    blurb: "Requirements in a place you are entering are the ones people are caught by.",
+  },
+  {
+    key: "priorities",
+    title: "Priorities",
+    question: "What worries you most?",
+    blurb: "RegLens ranks matching requirements higher and starts watching them for you.",
+  },
+  {
+    key: "workflow",
+    title: "Today",
+    question: "How do you keep track today?",
+    blurb: "So RegLens fits around what you already do rather than replacing it on day one.",
+  },
 ] as const;
 
 const PRODUCT_SUGGESTIONS = ["Physical goods", "Apparel", "Equipment", "Digital products", "Consumables"];
 const SERVICE_SUGGESTIONS = ["Consulting", "Installation", "Support", "Training", "Subscriptions"];
 const IMPORT_COUNTRY_SUGGESTIONS = ["CN", "VN", "MX", "CA", "IT", "DE", "JP", "TR", "IN"];
+
+/** A group of fields inside a step, with the reason the group is being asked. */
+function Group({
+  title,
+  purpose,
+  children,
+}: {
+  title: string;
+  purpose?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="border-t border-line pt-6">
+      <h2 className="text-[15px] font-medium text-ink">{title}</h2>
+      {purpose ? <p className="mt-1 max-w-xl text-[13px] leading-6 text-ink-muted">{purpose}</p> : null}
+      <div className="mt-4 space-y-4">{children}</div>
+    </section>
+  );
+}
+
+/**
+ * A yes/no answer. A list of these is a list — hairlines and hover ground —
+ * rather than a grid of bordered tiles that all shout at the same volume.
+ */
+function OptionRow({
+  checked,
+  onChange,
+  title,
+  description,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  title: string;
+  description?: string;
+}) {
+  return (
+    <li className="border-b border-line last:border-b-0">
+      <label className="lift flex cursor-pointer items-start gap-3 rounded-md px-2 py-3">
+        <Checkbox checked={checked} onChange={(e) => onChange(e.target.checked)} className="mt-0.5" />
+        <span className="min-w-0">
+          <span className={cn("block text-[15px] text-ink", checked && "font-medium")}>{title}</span>
+          {description ? (
+            <span className="mt-0.5 block text-[13px] leading-6 text-ink-muted">{description}</span>
+          ) : null}
+        </span>
+      </label>
+    </li>
+  );
+}
 
 export function OnboardingWizard({
   initial,
@@ -73,6 +158,69 @@ export function OnboardingWizard({
       (i) => i.label.toLowerCase().includes(q) || i.description.toLowerCase().includes(q),
     );
   }, [industryQuery]);
+
+  /*
+   * The closing readout. Every line is something the answers actually imply —
+   * no line appears unless the person put it there, so the last step reads as
+   * a result rather than as a summary of a form.
+   */
+  const findings = useMemo(() => {
+    const items: { trigger: string; effect: string }[] = [];
+    if (data.importsProducts) {
+      items.push({
+        trigger: "You import products",
+        effect: `Entry filings, duties and product-standard rules${
+          data.importCountries.length > 0 ? ` for goods arriving from ${data.importCountries.join(", ")}` : ""
+        }.`,
+      });
+    }
+    if (data.employsStaff) {
+      items.push({
+        trigger: "You employ staff",
+        effect: "Hiring, payroll, workplace posting and worker-protection duties in each place you operate.",
+      });
+    }
+    if (data.handlesCustomerData) {
+      items.push({
+        trigger: "You hold customer data",
+        effect: "Consent, retention and breach-notification duties, which differ by state and province.",
+      });
+    }
+    if (data.physicalLocations) {
+      items.push({
+        trigger: "You run physical locations",
+        effect: "Local permits, occupancy rules and inspection regimes at county and city level.",
+      });
+    }
+    if (data.sellsCrossBorder) {
+      items.push({
+        trigger: "You sell across borders",
+        effect: "Registration thresholds that oblige you to collect tax in places you have never visited.",
+      });
+    }
+    if (data.requiresLicenses) {
+      items.push({
+        trigger: "You hold licences or certificates",
+        effect: "Renewal dates, which RegLens turns into dated reminders before they lapse.",
+      });
+    }
+    if (data.regulatedIndustry) {
+      items.push({
+        trigger: "A sector regulator oversees you",
+        effect: "Regulator-specific obligations ranked above general business requirements.",
+      });
+    }
+    if (data.plansExpansion && (data.targetRegion || data.targetCountry)) {
+      const where = data.targetRegion
+        ? jurisdictionName(data.targetRegion)
+        : countryName(data.targetCountry ?? "");
+      items.push({
+        trigger: `You are expanding into ${where}`,
+        effect: "What has to be in place before you arrive, kept separate from what you owe today.",
+      });
+    }
+    return items;
+  }, [data]);
 
   function validateStep(index: number): string | null {
     if (index === 0) {
@@ -126,71 +274,60 @@ export function OnboardingWizard({
   }
 
   const progress = Math.round(((step + 1) / STEPS.length) * 100);
+  const current = STEPS[step];
+  const isLast = step === STEPS.length - 1;
 
   return (
-    <div className="space-y-5">
-      <div>
-        <div className="flex items-baseline justify-between gap-3">
-          <p className="text-xs font-medium text-ink-muted">
-            Step {step + 1} of {STEPS.length} · {STEPS[step].title}
-          </p>
-          <p className="text-xs text-ink-muted tabular">{progress}%</p>
-        </div>
-        <ProgressBar value={progress} className="mt-2" label="Onboarding progress" />
-        <ol className="mt-3 hidden flex-wrap gap-1.5 md:flex">
-          {STEPS.map((s, index) => (
-            <li key={s.key}>
-              <button
-                type="button"
-                onClick={() => {
-                  if (index <= step) setStep(index);
-                }}
-                disabled={index > step}
-                className={cn(
-                  "rounded-full border px-2.5 py-1 text-xs transition-colors",
-                  index === step
-                    ? "border-brand bg-brand-soft font-medium text-brand"
-                    : index < step
-                      ? "border-line text-ink-soft hover:border-brand-ring"
-                      : "border-line text-ink-muted opacity-60",
-                )}
-              >
-                {index < step ? <Check className="mr-1 inline size-3" /> : null}
-                {s.title}
-              </button>
-            </li>
-          ))}
-        </ol>
+    <div className="mx-auto w-full max-w-2xl pb-12">
+      <div className="flex items-baseline justify-between gap-4">
+        <p className="text-xs text-ink-muted">
+          Step {step + 1} of {STEPS.length} · {current.title}
+        </p>
+        <p className="tabular text-xs text-ink-muted">{progress}%</p>
       </div>
+      <ProgressBar value={progress} className="mt-2 h-0.5" label="Onboarding progress" />
 
-      <Card>
-        <CardContent className="space-y-5 sm:px-6 sm:py-5">
-          <div>
-            <h2 className="text-base font-semibold tracking-tight text-ink">{STEPS[step].title}</h2>
-            <p className="mt-0.5 text-sm text-ink-muted">{STEPS[step].blurb}</p>
-          </div>
+      <ol className="mt-3 hidden flex-wrap items-baseline gap-x-4 gap-y-1 text-xs sm:flex">
+        {STEPS.map((s, index) => (
+          <li key={s.key}>
+            <button
+              type="button"
+              onClick={() => {
+                if (index <= step) setStep(index);
+              }}
+              disabled={index > step}
+              aria-current={index === step ? "step" : undefined}
+              className={cn(
+                "transition-colors",
+                index === step
+                  ? "font-medium text-ink"
+                  : index < step
+                    ? "text-ink-muted underline decoration-line-strong underline-offset-4 hover:text-ink"
+                    : "text-line-strong",
+              )}
+            >
+              {s.title}
+            </button>
+          </li>
+        ))}
+      </ol>
 
-          {/* ---------------------------------------------------- Step 1 */}
-          {step === 0 ? (
+      <div key={current.key} className="rise">
+        <h1 className="mt-8 text-display font-semibold text-balance text-ink">{current.question}</h1>
+        <p className="mt-3 max-w-xl text-[15px] leading-7 text-ink-soft">{current.blurb}</p>
+
+        {/* ---------------------------------------------------- Step 1 */}
+        {step === 0 ? (
+          <div className="mt-8 space-y-8">
             <div className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Company name" htmlFor="name">
-                  <Input
-                    id="name"
-                    value={data.name}
-                    onChange={(e) => set("name", e.target.value)}
-                    placeholder="Frostonic"
-                  />
-                </Field>
-                <Field label="Website" htmlFor="website" hint="Optional.">
-                  <Input
-                    id="website"
-                    value={data.website ?? ""}
-                    onChange={(e) => set("website", e.target.value)}
-                    placeholder="https://example.com"
-                  />
-                </Field>
-              </div>
+              <Field label="Company name" htmlFor="name">
+                <Input
+                  id="name"
+                  value={data.name}
+                  onChange={(e) => set("name", e.target.value)}
+                  placeholder="Frostonic"
+                />
+              </Field>
 
               <Field
                 label="What does the business do?"
@@ -205,37 +342,21 @@ export function OnboardingWizard({
                 />
               </Field>
 
-              <div className="grid gap-4 sm:grid-cols-3">
-                <Field label="Organisation type" htmlFor="orgType">
-                  <Select id="orgType" value={data.orgType} onChange={(e) => set("orgType", e.target.value)}>
-                    {ORG_TYPES.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                <Field label="Company size" htmlFor="sizeBand">
-                  <Select id="sizeBand" value={data.sizeBand} onChange={(e) => set("sizeBand", e.target.value)}>
-                    {SIZE_BANDS.map((s) => (
-                      <option key={s.key} value={s.key}>
-                        {s.label}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                <Field label="Number of employees" htmlFor="employeeCount">
-                  <Input
-                    id="employeeCount"
-                    type="number"
-                    min={0}
-                    value={data.employeeCount}
-                    onChange={(e) => set("employeeCount", Number(e.target.value))}
-                  />
-                </Field>
-              </div>
+              <Field label="Website" htmlFor="website" hint="Optional.">
+                <Input
+                  id="website"
+                  value={data.website ?? ""}
+                  onChange={(e) => set("website", e.target.value)}
+                  placeholder="https://example.com"
+                />
+              </Field>
+            </div>
 
-              <div className="grid gap-4 sm:grid-cols-3">
+            <Group
+              title="Where you are based"
+              purpose="Your home jurisdiction decides which registrations and filings are yours by default."
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Primary country" htmlFor="country">
                   <Select
                     id="country"
@@ -282,23 +403,71 @@ export function OnboardingWizard({
                     ))}
                   </Select>
                 </Field>
-                <Field label="City" htmlFor="city">
-                  <Input id="city" value={data.city} onChange={(e) => set("city", e.target.value)} placeholder="Los Angeles" />
+              </div>
+              <Field label="City" htmlFor="city" className="sm:max-w-xs">
+                <Input
+                  id="city"
+                  value={data.city}
+                  onChange={(e) => set("city", e.target.value)}
+                  placeholder="Los Angeles"
+                />
+              </Field>
+            </Group>
+
+            <Group
+              title="How the business is set up"
+              purpose="Entity type and headcount move several thresholds — employment duties in particular."
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Organisation type" htmlFor="orgType">
+                  <Select id="orgType" value={data.orgType} onChange={(e) => set("orgType", e.target.value)}>
+                    {ORG_TYPES.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="Company size" htmlFor="sizeBand">
+                  <Select
+                    id="sizeBand"
+                    value={data.sizeBand}
+                    onChange={(e) => set("sizeBand", e.target.value)}
+                  >
+                    {SIZE_BANDS.map((s) => (
+                      <option key={s.key} value={s.key}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </Select>
                 </Field>
               </div>
-
-              <div>
-                <p className="mb-2 text-xs font-medium text-ink-soft">Operating jurisdictions</p>
-                <JurisdictionPicker
-                  selected={data.operatingJurisdictions}
-                  onChange={(next) => set("operatingJurisdictions", next)}
+              <Field label="Number of employees" htmlFor="employeeCount" className="sm:max-w-[12rem]">
+                <Input
+                  id="employeeCount"
+                  type="number"
+                  min={0}
+                  value={data.employeeCount}
+                  onChange={(e) => set("employeeCount", Number(e.target.value))}
                 />
-              </div>
-            </div>
-          ) : null}
+              </Field>
+            </Group>
 
-          {/* ---------------------------------------------------- Step 2 */}
-          {step === 1 ? (
+            <Group
+              title="Everywhere you answer to a regulator"
+              purpose="Add every state, province or city you operate in — not only where you are registered."
+            >
+              <JurisdictionPicker
+                selected={data.operatingJurisdictions}
+                onChange={(next) => set("operatingJurisdictions", next)}
+              />
+            </Group>
+          </div>
+        ) : null}
+
+        {/* ---------------------------------------------------- Step 2 */}
+        {step === 1 ? (
+          <div className="mt-8 space-y-8">
             <div className="space-y-4">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted" />
@@ -311,59 +480,130 @@ export function OnboardingWizard({
                 />
               </div>
 
-              <div className="grid gap-2 sm:grid-cols-2">
-                {filteredIndustries.map((industry) => {
-                  const active = data.industryKey === industry.key;
-                  return (
-                    <button
-                      key={industry.key}
-                      type="button"
-                      onClick={() => {
-                        setData((prev) => ({
-                          ...prev,
-                          industryKey: industry.key,
-                          industryLabel: industry.label,
-                        }));
-                      }}
-                      className={cn(
-                        "rounded-lg border p-3 text-left transition-colors",
-                        active ? "border-brand bg-brand-soft" : "border-line hover:border-brand-ring",
-                      )}
-                    >
-                      <span className="flex items-center gap-2">
-                        <Check className={cn("size-4 shrink-0", active ? "text-brand" : "invisible")} />
-                        <span className="text-sm font-medium text-ink">{industry.label}</span>
-                      </span>
-                      <span className="mt-1 block pl-6 text-xs leading-5 text-ink-muted">
-                        {industry.description}
-                      </span>
-                    </button>
-                  );
-                })}
-                {filteredIndustries.length === 0 ? (
-                  <p className="rounded-lg border border-dashed border-line-strong p-4 text-sm text-ink-muted sm:col-span-2">
-                    No preset matches. Pick the closest one and add your own description below — RegLens uses
-                    both.
-                  </p>
-                ) : null}
-              </div>
-
-              <Field
-                label="Anything more specific?"
-                hint="Optional. Sub-sectors, niches or specialisms RegLens should keep in mind."
-              >
-                <TagInput
-                  values={data.subIndustries}
-                  onChange={(next) => set("subIndustries", next)}
-                  placeholder="e.g. Winter sportswear"
-                />
-              </Field>
+              {filteredIndustries.length === 0 ? (
+                <p className="py-6 text-[15px] leading-7 text-ink-soft">
+                  No preset matches that search. Pick the closest one and add your own wording below — RegLens
+                  reads both.
+                </p>
+              ) : (
+                <ul className="border-y border-line">
+                  {filteredIndustries.map((industry) => {
+                    const active = data.industryKey === industry.key;
+                    return (
+                      <li key={industry.key} className="border-b border-line last:border-b-0">
+                        <button
+                          type="button"
+                          aria-pressed={active}
+                          onClick={() => {
+                            setData((prev) => ({
+                              ...prev,
+                              industryKey: industry.key,
+                              industryLabel: industry.label,
+                            }));
+                            setError(null);
+                          }}
+                          className="lift flex w-full items-start gap-3 rounded-md px-2 py-3 text-left"
+                        >
+                          <Check
+                            className={cn("mt-0.5 size-4 shrink-0", active ? "text-ink" : "invisible")}
+                          />
+                          <span className="min-w-0">
+                            <span className={cn("block text-[15px] text-ink", active && "font-medium")}>
+                              {industry.label}
+                            </span>
+                            <span className="mt-0.5 block text-[13px] leading-6 text-ink-muted">
+                              {industry.description}
+                            </span>
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </div>
-          ) : null}
 
-          {/* ---------------------------------------------------- Step 3 */}
-          {step === 2 ? (
-            <div className="space-y-4">
+            <Group
+              title="Anything more specific?"
+              purpose="Optional. Sub-sectors, niches or specialisms RegLens should keep in mind when it ranks."
+            >
+              <TagInput
+                values={data.subIndustries}
+                onChange={(next) => set("subIndustries", next)}
+                placeholder="e.g. Winter sportswear"
+              />
+            </Group>
+          </div>
+        ) : null}
+
+        {/* ---------------------------------------------------- Step 3 */}
+        {step === 2 ? (
+          <div className="mt-8 space-y-8">
+            <ul className="border-y border-line">
+              <OptionRow
+                checked={data.importsProducts}
+                onChange={(v) => set("importsProducts", v)}
+                title="We import products"
+                description="Goods cross a national border to reach us."
+              />
+              <OptionRow
+                checked={data.employsStaff}
+                onChange={(v) => set("employsStaff", v)}
+                title="We employ staff"
+                description="Payroll, hiring and workplace requirements apply."
+              />
+              <OptionRow
+                checked={data.handlesCustomerData}
+                onChange={(v) => set("handlesCustomerData", v)}
+                title="We handle customer data"
+                description="Names, contact details, payment or usage data."
+              />
+              <OptionRow
+                checked={data.physicalLocations}
+                onChange={(v) => set("physicalLocations", v)}
+                title="We operate physical locations"
+                description="Offices, stores, classrooms, warehouses or kitchens."
+              />
+              <OptionRow
+                checked={data.sellsCrossBorder}
+                onChange={(v) => set("sellsCrossBorder", v)}
+                title="We sell across state or national borders"
+                description="Triggers tax registration thresholds in other places."
+              />
+              <OptionRow
+                checked={data.requiresLicenses}
+                onChange={(v) => set("requiresLicenses", v)}
+                title="We need licences or certifications"
+                description="Permits, professional licences or product certificates."
+              />
+              <OptionRow
+                checked={data.regulatedIndustry}
+                onChange={(v) => set("regulatedIndustry", v)}
+                title="We work in a regulated industry"
+                description="A sector regulator oversees how we operate."
+              />
+            </ul>
+
+            {data.importsProducts ? (
+              <Group
+                title="Where the goods come from"
+                purpose="Origin decides duty treatment and which product-standard regimes follow the shipment."
+              >
+                <Field label="Countries you import from" hint="Two-letter codes or names both work.">
+                  <TagInput
+                    values={data.importCountries}
+                    onChange={(next) => set("importCountries", next)}
+                    suggestions={IMPORT_COUNTRY_SUGGESTIONS}
+                    placeholder="Add a country"
+                  />
+                </Field>
+              </Group>
+            ) : null}
+
+            <Group
+              title="What you sell"
+              purpose="Optional, but product and service names sharpen which standards RegLens surfaces."
+            >
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Products you sell" hint="Optional.">
                   <TagInput
@@ -382,132 +622,74 @@ export function OnboardingWizard({
                   />
                 </Field>
               </div>
+            </Group>
+          </div>
+        ) : null}
 
-              <div className="grid gap-2 sm:grid-cols-2">
-                <ToggleCard
-                  checked={data.importsProducts}
-                  onChange={(v) => set("importsProducts", v)}
-                  title="We import products"
-                  description="Goods cross a national border to reach us."
-                />
-                <ToggleCard
-                  checked={data.employsStaff}
-                  onChange={(v) => set("employsStaff", v)}
-                  title="We employ staff"
-                  description="Payroll, hiring and workplace requirements apply."
-                />
-                <ToggleCard
-                  checked={data.handlesCustomerData}
-                  onChange={(v) => set("handlesCustomerData", v)}
-                  title="We handle customer data"
-                  description="Names, contact details, payment or usage data."
-                />
-                <ToggleCard
-                  checked={data.physicalLocations}
-                  onChange={(v) => set("physicalLocations", v)}
-                  title="We operate physical locations"
-                  description="Offices, stores, classrooms, warehouses or kitchens."
-                />
-                <ToggleCard
-                  checked={data.sellsCrossBorder}
-                  onChange={(v) => set("sellsCrossBorder", v)}
-                  title="We sell across state or national borders"
-                  description="Triggers tax registration thresholds in other places."
-                />
-                <ToggleCard
-                  checked={data.requiresLicenses}
-                  onChange={(v) => set("requiresLicenses", v)}
-                  title="We need licences or certifications"
-                  description="Permits, professional licences or product certificates."
-                />
-                <ToggleCard
-                  checked={data.regulatedIndustry}
-                  onChange={(v) => set("regulatedIndustry", v)}
-                  title="We work in a regulated industry"
-                  description="A sector regulator oversees how we operate."
-                />
-              </div>
-
-              {data.importsProducts ? (
-                <Field label="Countries you import from" hint="Two-letter codes or names both work.">
-                  <TagInput
-                    values={data.importCountries}
-                    onChange={(next) => set("importCountries", next)}
-                    suggestions={IMPORT_COUNTRY_SUGGESTIONS}
-                    placeholder="Add a country"
-                  />
-                </Field>
-              ) : null}
-            </div>
-          ) : null}
-
-          {/* ---------------------------------------------------- Step 4 */}
-          {step === 3 ? (
-            <div className="space-y-4">
-              <ToggleCard
+        {/* ---------------------------------------------------- Step 4 */}
+        {step === 3 ? (
+          <div className="mt-8 space-y-8">
+            <ul className="border-y border-line">
+              <OptionRow
                 checked={data.plansExpansion}
                 onChange={(v) => set("plansExpansion", v)}
                 title="We plan to expand into a new jurisdiction"
                 description="RegLens will surface what you need before you get there."
               />
+            </ul>
 
-              {data.plansExpansion ? (
-                <div className="space-y-4 rounded-lg border border-line bg-surface-muted p-4">
-                  <div className="grid gap-4 sm:grid-cols-3">
-                    <Field label="Target country" htmlFor="targetCountry">
-                      <Select
-                        id="targetCountry"
-                        value={data.targetCountry ?? ""}
-                        onChange={(e) =>
-                          setData((prev) => ({
-                            ...prev,
-                            targetCountry: e.target.value || null,
-                            targetRegion: null,
-                          }))
-                        }
-                      >
-                        <option value="">Select…</option>
-                        {COUNTRIES.map((c) => (
-                          <option key={c.code} value={c.code}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </Select>
-                    </Field>
-                    <Field label="Target state, province or region" htmlFor="targetRegion">
-                      <Select
-                        id="targetRegion"
-                        value={data.targetRegion ?? ""}
-                        onChange={(e) => set("targetRegion", e.target.value || null)}
-                        disabled={!data.targetCountry}
-                      >
-                        <option value="">Select…</option>
-                        {targetRegions.map((r) => (
-                          <option key={r.code} value={r.code}>
-                            {r.name}
-                          </option>
-                        ))}
-                      </Select>
-                    </Field>
-                    <Field label="Target city" htmlFor="targetCity" hint="Optional.">
-                      <Input
-                        id="targetCity"
-                        value={data.targetCity ?? ""}
-                        onChange={(e) => set("targetCity", e.target.value || null)}
-                        placeholder="Toronto"
-                      />
-                    </Field>
-                  </div>
+            {data.plansExpansion ? (
+              <Group
+                title="Where you are going"
+                purpose="RegLens keeps these obligations separate from the ones you already owe."
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Target country" htmlFor="targetCountry">
+                    <Select
+                      id="targetCountry"
+                      value={data.targetCountry ?? ""}
+                      onChange={(e) =>
+                        setData((prev) => ({
+                          ...prev,
+                          targetCountry: e.target.value || null,
+                          targetRegion: null,
+                        }))
+                      }
+                    >
+                      <option value="">Select…</option>
+                      {COUNTRIES.map((c) => (
+                        <option key={c.code} value={c.code}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Field label="Target state, province or region" htmlFor="targetRegion">
+                    <Select
+                      id="targetRegion"
+                      value={data.targetRegion ?? ""}
+                      onChange={(e) => set("targetRegion", e.target.value || null)}
+                      disabled={!data.targetCountry}
+                    >
+                      <option value="">Select…</option>
+                      {targetRegions.map((r) => (
+                        <option key={r.code} value={r.code}>
+                          {r.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                </div>
 
-                  <Field label="What will you do there?" htmlFor="expansionActivity">
-                    <Textarea
-                      id="expansionActivity"
-                      value={data.expansionActivity ?? ""}
-                      onChange={(e) => set("expansionActivity", e.target.value || null)}
-                      placeholder="Sell online to consumers using a local fulfilment partner."
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Target city" htmlFor="targetCity" hint="Optional.">
+                    <Input
+                      id="targetCity"
+                      value={data.targetCity ?? ""}
+                      onChange={(e) => set("targetCity", e.target.value || null)}
+                      placeholder="Toronto"
                     />
                   </Field>
-
                   <Field label="Expected date" htmlFor="expansionDate" hint="Approximate is fine.">
                     <Input
                       id="expansionDate"
@@ -517,48 +699,55 @@ export function OnboardingWizard({
                     />
                   </Field>
                 </div>
-              ) : (
-                <p className="rounded-lg border border-line bg-surface-muted px-3 py-2.5 text-sm text-ink-muted">
-                  No expansion planned right now. You can add one later from your business profile, and RegLens
-                  will refresh what it recommends.
-                </p>
-              )}
-            </div>
-          ) : null}
 
-          {/* ---------------------------------------------------- Step 5 */}
-          {step === 4 ? (
-            <div className="space-y-3">
-              <p className="text-sm text-ink-soft">
-                Pick the areas that worry you most. RegLens ranks matching requirements higher and starts
-                monitoring them for you.
+                <Field label="What will you do there?" htmlFor="expansionActivity">
+                  <Textarea
+                    id="expansionActivity"
+                    value={data.expansionActivity ?? ""}
+                    onChange={(e) => set("expansionActivity", e.target.value || null)}
+                    placeholder="Sell online to consumers using a local fulfilment partner."
+                  />
+                </Field>
+              </Group>
+            ) : (
+              <p className="max-w-xl text-[15px] leading-7 text-ink-soft">
+                No expansion planned right now — that is a perfectly good answer. You can add one later from
+                your business profile and RegLens will refresh what it recommends.
               </p>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {COMPLIANCE_TOPICS.map((topic) => {
-                  const active = data.compliancePriorities.includes(topic.key);
-                  return (
-                    <ToggleCard
-                      key={topic.key}
-                      checked={active}
-                      onChange={(checked) =>
-                        set(
-                          "compliancePriorities",
-                          checked
-                            ? [...data.compliancePriorities, topic.key]
-                            : data.compliancePriorities.filter((k) => k !== topic.key),
-                        )
-                      }
-                      title={topic.label}
-                      description={topic.blurb}
-                    />
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
+            )}
+          </div>
+        ) : null}
 
-          {/* ---------------------------------------------------- Step 6 */}
-          {step === 5 ? (
+        {/* ---------------------------------------------------- Step 5 */}
+        {step === 4 ? (
+          <div className="mt-8">
+            <p className="tabular text-xs text-ink-muted">
+              {data.compliancePriorities.length} selected · optional
+            </p>
+            <ul className="mt-2 border-y border-line">
+              {COMPLIANCE_TOPICS.map((topic) => (
+                <OptionRow
+                  key={topic.key}
+                  checked={data.compliancePriorities.includes(topic.key)}
+                  onChange={(checked) =>
+                    set(
+                      "compliancePriorities",
+                      checked
+                        ? [...data.compliancePriorities, topic.key]
+                        : data.compliancePriorities.filter((k) => k !== topic.key),
+                    )
+                  }
+                  title={topic.label}
+                  description={topic.blurb}
+                />
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {/* ---------------------------------------------------- Step 6 */}
+        {step === 5 ? (
+          <div className="mt-8 space-y-8">
             <div className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="How is compliance tracked today?" htmlFor="trackingMethod">
@@ -589,23 +778,23 @@ export function OnboardingWizard({
                 </Field>
               </div>
 
-              <div className="grid gap-2 sm:grid-cols-3">
-                <ToggleCard
+              <ul className="border-y border-line">
+                <OptionRow
                   checked={data.hasComplianceStaff}
                   onChange={(v) => set("hasComplianceStaff", v)}
                   title="We have a compliance employee"
                 />
-                <ToggleCard
+                <OptionRow
                   checked={data.usesSpreadsheets}
                   onChange={(v) => set("usesSpreadsheets", v)}
                   title="We use spreadsheets"
                 />
-                <ToggleCard
+                <OptionRow
                   checked={data.usesExternalTool}
                   onChange={(v) => set("usesExternalTool", v)}
                   title="We use external software"
                 />
-              </div>
+              </ul>
 
               <Field
                 label="What is your most important compliance concern right now?"
@@ -619,50 +808,105 @@ export function OnboardingWizard({
                   placeholder="We are about to start shipping to Canada and do not know what we need in place."
                 />
               </Field>
-
-              <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-line bg-surface-muted p-3">
-                <Checkbox
-                  checked={data.disclaimerAccepted}
-                  onChange={(e) => set("disclaimerAccepted", e.target.checked)}
-                  className="mt-0.5"
-                />
-                <span className="text-xs leading-5 text-ink-soft">{DISCLAIMER}</span>
-              </label>
             </div>
-          ) : null}
 
-          {error ? (
-            <p role="alert" className="flex items-start gap-2 rounded-lg border border-danger/25 bg-danger-soft px-3 py-2 text-sm text-danger">
-              <AlertCircle className="mt-0.5 size-4 shrink-0" />
-              {error}
-            </p>
-          ) : null}
+            {/* The payoff: what these answers already mean, before you leave. */}
+            <section className="border-t border-line pt-6">
+              <h2 className="text-title font-semibold text-ink">What RegLens has so far</h2>
+              <p className="mt-2 max-w-xl text-[15px] leading-7 text-ink-soft">
+                {isEdit
+                  ? "Saving re-ranks your dashboard, your recommended policies and what the AI Analyst reads."
+                  : "Finishing saves this and opens your dashboard, already ranked against these answers."}
+              </p>
 
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setStep((s) => Math.max(0, s - 1))}
-              disabled={step === 0 || pending}
-            >
-              <ArrowLeft className="size-4" />
-              Back
-            </Button>
+              <dl className="mt-5">
+                <div className="flex gap-4 border-b border-line py-3">
+                  <dt className="w-36 shrink-0 text-[13px] text-ink-muted">Jurisdictions</dt>
+                  <dd className="min-w-0 flex-1 text-[14px] leading-6 text-ink">
+                    {data.operatingJurisdictions.length === 0
+                      ? "None yet — add at least one on the first step."
+                      : `${data.operatingJurisdictions.length} watched — ${data.operatingJurisdictions
+                          .slice(0, 6)
+                          .map((code) => jurisdictionName(code))
+                          .join(", ")}${
+                          data.operatingJurisdictions.length > 6
+                            ? ` and ${data.operatingJurisdictions.length - 6} more`
+                            : ""
+                        }`}
+                  </dd>
+                </div>
+                <div className="flex gap-4 border-b border-line py-3">
+                  <dt className="w-36 shrink-0 text-[13px] text-ink-muted">Rules read first</dt>
+                  <dd className="min-w-0 flex-1 text-[14px] leading-6 text-ink">
+                    {data.industryLabel}
+                    {data.subIndustries.length > 0 ? ` — ${data.subIndustries.join(", ")}` : ""}
+                  </dd>
+                </div>
+                <div className="flex gap-4 border-b border-line py-3">
+                  <dt className="w-36 shrink-0 text-[13px] text-ink-muted">Ranked higher</dt>
+                  <dd className="min-w-0 flex-1 text-[14px] leading-6 text-ink">
+                    {data.compliancePriorities.length === 0
+                      ? "Nothing flagged, so RegLens ranks on your jurisdictions and industry alone."
+                      : data.compliancePriorities.map((key) => topicLabel(key)).join(", ")}
+                  </dd>
+                </div>
+              </dl>
 
-            {step < STEPS.length - 1 ? (
-              <Button type="button" onClick={next} disabled={pending}>
-                Continue
-                <ArrowRight className="size-4" />
-              </Button>
-            ) : (
-              <Button type="button" onClick={submit} disabled={pending}>
-                {pending ? "Saving…" : isEdit ? "Save profile" : "Finish and open my dashboard"}
-                <ArrowRight className="size-4" />
-              </Button>
-            )}
+              {findings.length > 0 ? (
+                <ul className="mt-6">
+                  {findings.map((finding) => (
+                    <li key={finding.trigger} className="border-b border-line py-3 last:border-b-0">
+                      <p className="text-[14px] font-medium text-ink">{finding.trigger}</p>
+                      <p className="mt-0.5 text-[13px] leading-6 text-ink-soft">{finding.effect}</p>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-5 max-w-xl text-[14px] leading-6 text-ink-muted">
+                  You did not flag any activities that pull in extra regimes, so RegLens will start from your
+                  location and industry. Add activities later and the ranking updates.
+                </p>
+              )}
+            </section>
+
+            <label className="flex cursor-pointer items-start gap-3 border-t border-line pt-6">
+              <Checkbox
+                checked={data.disclaimerAccepted}
+                onChange={(e) => set("disclaimerAccepted", e.target.checked)}
+                className="mt-0.5"
+              />
+              <span className="text-[13px] leading-6 text-ink-muted">{DISCLAIMER}</span>
+            </label>
           </div>
-        </CardContent>
-      </Card>
+        ) : null}
+
+        {error ? (
+          <p role="alert" className="mt-6 text-[14px] font-medium text-alert">
+            {error}
+          </p>
+        ) : null}
+
+        <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-6">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => setStep((s) => Math.max(0, s - 1))}
+            disabled={step === 0 || pending}
+          >
+            Back
+          </Button>
+
+          {isLast ? (
+            <Button type="button" onClick={submit} disabled={pending}>
+              {pending ? "Saving…" : isEdit ? "Save profile" : "Finish and open my dashboard"}
+            </Button>
+          ) : (
+            <Button type="button" onClick={next} disabled={pending}>
+              Continue
+            </Button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

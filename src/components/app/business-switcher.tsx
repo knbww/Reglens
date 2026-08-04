@@ -65,15 +65,15 @@ export function BusinessSwitcher({
     if (items.length === 0) return null;
     return (
       <div className="py-1">
-        <p className="px-3 py-1 text-xs font-medium text-ink-muted">{label}</p>
+        <p className="px-3 py-1 text-xs text-ink-muted">{label}</p>
         {items.map((b) => (
           <button
             key={b.id}
             type="button"
             onClick={() => select(b.id)}
-            className="flex w-full items-start gap-2 px-3 py-2 text-left text-sm hover:bg-surface-muted"
+            className="flex w-full items-start gap-2 px-3 py-2 text-left text-[13px] transition-colors hover:bg-surface-muted"
           >
-            <Check className={cn("mt-0.5 size-4 shrink-0", b.id === active?.id ? "text-brand" : "invisible")} />
+            <Check className={cn("mt-0.5 size-4 shrink-0 text-ink", b.id === active?.id ? "" : "invisible")} />
             <span className="min-w-0">
               <span className="block truncate font-medium text-ink">{b.name}</span>
               <span className="block truncate text-xs text-ink-muted">
@@ -97,18 +97,20 @@ export function BusinessSwitcher({
         aria-expanded={open}
         aria-label={compact ? `Active business: ${active?.name ?? "none"}. Switch business` : undefined}
         title={compact ? active?.name : undefined}
+        // A bordered box with a tinted icon tile made the switcher the loudest
+        // thing in the rail, above the navigation it sits over. It is a label
+        // you can change, so it is set as a label: name, place, a chevron.
         className={cn(
-          "flex items-center rounded-lg border border-line bg-surface text-left transition-colors hover:border-brand-ring disabled:opacity-60",
-          compact ? "size-10 justify-center" : "w-full gap-2 px-2.5 py-2",
+          "flex items-center rounded-md text-left transition-colors hover:bg-surface-muted disabled:opacity-60",
+          compact ? "size-9 justify-center" : "w-full gap-2 px-2 py-1.5",
         )}
       >
-        <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-brand-soft text-brand">
-          <Building2 className="size-4" />
-        </span>
-        {compact ? null : (
+        {compact ? (
+          <Building2 className="size-4 text-ink-soft" />
+        ) : (
           <>
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-medium text-ink">
+              <span className="block truncate text-[13px] font-medium text-ink">
                 {active?.name ?? "No business yet"}
               </span>
               <span className="block truncate text-[11px] text-ink-muted">
@@ -117,7 +119,7 @@ export function BusinessSwitcher({
                   : "Create one to start"}
               </span>
             </span>
-            <ChevronsUpDown className="size-4 shrink-0 text-ink-muted" />
+            <ChevronsUpDown className="size-3.5 shrink-0 text-ink-muted" />
           </>
         )}
       </button>
@@ -126,22 +128,22 @@ export function BusinessSwitcher({
         <div
           role="listbox"
           className={cn(
-            "absolute z-40 max-h-96 overflow-auto rounded-lg border border-line bg-surface py-1 shadow-lg",
-            compact ? "left-full top-0 ml-2 w-64" : "left-0 right-0 top-full mt-1",
+            "absolute z-40 max-h-96 overflow-auto rounded-lg border border-line bg-surface py-1 shadow-[0_8px_32px_rgba(22,22,26,0.10)]",
+            compact ? "left-full top-0 ml-2 w-64" : "left-0 right-0 top-full mt-1.5",
           )}
         >
           {renderGroup("Your businesses", own)}
           {renderGroup("Demo businesses", demos)}
-          <div className="border-t border-line pt-1">
+          <div className="mt-1 border-t border-line pt-1">
             <button
               type="button"
               onClick={() => {
                 setOpen(false);
                 router.push("/onboarding?new=1");
               }}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-brand hover:bg-surface-muted"
+              className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] text-ink-soft transition-colors hover:bg-surface-muted hover:text-ink"
             >
-              <Plus className="size-4" />
+              <Plus className="size-4 text-ink-muted" />
               Add a business
             </button>
           </div>

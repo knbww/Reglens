@@ -17,6 +17,13 @@ const LEVEL_LABEL: Record<string, string> = {
   MUNICIPAL: "Local",
 };
 
+/**
+ * Picks the places a business answers to.
+ *
+ * A long list, so it is a list: hairline rows, hover ground, a check where the
+ * eye already is. What you have chosen sits above the search as plain text,
+ * because that is the part you re-read.
+ */
 export function JurisdictionPicker({
   selected,
   onChange,
@@ -48,27 +55,27 @@ export function JurisdictionPicker({
   return (
     <div className="space-y-3">
       {selected.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5">
+        <ul className="flex flex-wrap gap-1.5">
           {selected.map((code) => {
             const j = JURISDICTIONS.find((x) => x.code === code);
             return (
-              <span
+              <li
                 key={code}
-                className="inline-flex items-center gap-1 rounded-full border border-brand-ring bg-brand-soft py-0.5 pl-2.5 pr-1 text-xs text-brand"
+                className="inline-flex items-center gap-1 rounded-md bg-surface-muted py-1 pl-2.5 pr-1 text-[13px] text-ink"
               >
                 {j?.name ?? code}
                 <button
                   type="button"
                   aria-label={`Remove ${j?.name ?? code}`}
                   onClick={() => toggle(code)}
-                  className="rounded-full p-0.5 hover:bg-brand-ring/40"
+                  className="rounded p-0.5 text-ink-muted transition-colors hover:text-ink"
                 >
                   <X className="size-3" />
                 </button>
-              </span>
+              </li>
             );
           })}
-        </div>
+        </ul>
       ) : null}
 
       <div className="relative">
@@ -83,51 +90,59 @@ export function JurisdictionPicker({
       </div>
 
       {query.trim() === "" ? (
-        <div className="flex gap-1.5">
+        <p className="flex flex-wrap items-baseline gap-x-4 text-[13px]">
           {COUNTRIES.map((c) => (
             <button
               key={c.code}
               type="button"
               onClick={() => setCountry(c.code)}
+              aria-pressed={country === c.code}
               className={cn(
-                "rounded-lg border px-2.5 py-1 text-xs transition-colors",
+                "underline-offset-4 transition-colors",
                 country === c.code
-                  ? "border-brand bg-brand-soft text-brand"
-                  : "border-line text-ink-soft hover:border-brand-ring",
+                  ? "font-medium text-ink underline decoration-ink"
+                  : "text-ink-muted hover:text-ink",
               )}
             >
-              {c.flag} {c.name}
+              {c.name}
             </button>
           ))}
-        </div>
+        </p>
       ) : null}
 
-      <div className="max-h-64 overflow-y-auto rounded-lg border border-line">
-        <ul className="divide-y divide-line">
+      <div className="max-h-64 overflow-y-auto border-y border-line">
+        <ul>
           {results.map((j) => {
             const isSelected = selected.includes(j.code);
             return (
-              <li key={j.code}>
+              <li key={j.code} className="border-b border-line last:border-b-0">
                 <button
                   type="button"
                   onClick={() => toggle(j.code)}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-surface-muted"
+                  aria-pressed={isSelected}
+                  className="lift flex w-full items-center gap-2.5 px-2 py-2 text-left text-[14px]"
                 >
-                  <Check className={cn("size-4 shrink-0", isSelected ? "text-brand" : "invisible")} />
-                  <span className="min-w-0 flex-1 truncate text-ink">{j.name}</span>
-                  <span className="shrink-0 text-[11px] text-ink-muted">{LEVEL_LABEL[j.level]}</span>
+                  <Check className={cn("size-4 shrink-0", isSelected ? "text-ink" : "invisible")} />
+                  <span className={cn("min-w-0 flex-1 truncate", isSelected ? "text-ink" : "text-ink-soft")}>
+                    {j.name}
+                  </span>
+                  <span className="shrink-0 text-xs text-ink-muted">{LEVEL_LABEL[j.level]}</span>
                 </button>
               </li>
             );
           })}
           {results.length === 0 ? (
-            <li className="px-3 py-6 text-center text-sm text-ink-muted">No jurisdiction matches that search.</li>
+            <li className="px-2 py-6 text-[14px] text-ink-muted">No jurisdiction matches that search.</li>
           ) : null}
         </ul>
       </div>
-      <p className="text-xs text-ink-muted">
-        {selected.length} of {max} selected. Include the federal level for each country you operate in — many
-        requirements sit there rather than at state or provincial level.
+
+      <p className="text-[13px] leading-6 text-ink-muted">
+        <span className="tabular">
+          {selected.length} of {max}
+        </span>{" "}
+        selected. Include the federal level for each country you operate in — many requirements sit there
+        rather than at state or provincial level.
       </p>
     </div>
   );

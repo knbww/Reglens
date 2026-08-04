@@ -9,7 +9,7 @@ import {
   Sun,
 } from "lucide-react";
 
-import type { NavCounts, NavTone } from "@/lib/queries";
+import type { NavCounts } from "@/lib/queries";
 
 export type NavQueue = keyof NavCounts;
 
@@ -76,12 +76,28 @@ export function isSectionActive(pathname: string, item: NavItem): boolean {
   return sectionRoutes(item).some((href) => isRouteActive(pathname, href));
 }
 
-/** Ramp colours for a count. `neutral` renders no badge at all. */
-export const NAV_TONE_CLASS: Record<Exclude<NavTone, "neutral">, string> = {
-  over: "bg-sev-over-soft text-sev-over",
-  act: "bg-sev-act-soft text-sev-act",
-  watch: "bg-sev-watch-soft text-sev-watch",
-};
+/**
+ * Which single count, if any, is allowed to carry the alert colour.
+ *
+ * Colour in the navigation used to be a four-rung ramp, which meant three
+ * tinted pills could be lit at once and none of them meant anything. Only
+ * genuinely late work earns the one colour in the interface, and only the
+ * first such queue in navigation order takes it — every other count is a
+ * plain numeral that the reader can still see.
+ */
+export function alertingQueue(counts: NavCounts): NavQueue | null {
+  for (const item of NAV_ITEMS) {
+    if (!item.queue) continue;
+    const count = counts[item.queue];
+    if (count.count > 0 && count.tone === "over") return item.queue;
+  }
+  return null;
+}
+
+/** The count shown beside a destination, or 0 when it has nothing waiting. */
+export function navCount(counts: NavCounts, item: NavItem): number {
+  return item.queue ? counts[item.queue].count : 0;
+}
 
 export function countLabel(queue: NavQueue, count: number): string {
   const noun = {

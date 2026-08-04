@@ -1,19 +1,14 @@
 "use client";
 
 import type { MonitorTargetType, PolicyImportance, UpdateType } from "@prisma/client";
-import { Check, ListPlus, MoreHorizontal, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Select } from "@/components/ui/field";
-import { EmptyState } from "@/components/ui/misc";
-import { Meter, Spine } from "@/components/ui/severity";
-import { UpdateTypeBadge } from "@/components/ui/status";
-import { severityFromImportance } from "@/lib/severity";
+import { UPDATE_TYPE_LABEL } from "@/components/ui/status";
 import { JURISDICTIONS } from "@/data/jurisdictions";
 import {
   addMonitorTarget,
@@ -67,6 +62,22 @@ const TARGET_LABEL: Record<MonitorTargetType, string> = {
 
 type FeedFilter = "unreviewed" | "all" | "reviewed" | "dismissed";
 
+const FILTERS: [FeedFilter, string][] = [
+  ["unreviewed", "Needs review"],
+  ["all", "All changes"],
+  ["reviewed", "Reviewed"],
+  ["dismissed", "Dismissed"],
+];
+
+/**
+ * The change feed, and beneath it what is being watched.
+ *
+ * The two used to be columns speaking the same language — the same spines, the
+ * same relevance meters, the same change titles — which made the page read as
+ * one list printed twice. The feed is the work, so it keeps the row grammar and
+ * the actions; the watch list becomes a plain register of names, last and
+ * quieter, saying only what the feed cannot.
+ */
 export function MonitoringView({
   monitors,
   updates,
@@ -81,24 +92,22 @@ export function MonitoringView({
   const [filter, setFilter] = useState<FeedFilter>("unreviewed");
   const [adding, setAdding] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [disposed, setDisposed] = useState<Set<string>>(new Set());
+  const [leaving, setLeaving] = useState<string | null>(null);
   const [newTarget, setNewTarget] = useState<{ type: Exclude<MonitorTargetType, "POLICY">; key: string }>({
     type: "TOPIC",
     key: COMPLIANCE_TOPICS[0].key,
   });
-  /** Which row's overflow menu is open — only ever one at a time. */
-  const [menuFor, setMenuFor] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!menuFor) return;
-    const close = () => setMenuFor(null);
-    const onKey = (event: KeyboardEvent) => event.key === "Escape" && setMenuFor(null);
-    document.addEventListener("click", close);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("click", close);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [menuFor]);
+  // Fresh server data supersedes anything the feed was hiding locally. Adjusted
+  // during render rather than in an effect, so the list never paints one frame
+  // of stale hiding before correcting itself.
+  const [seenUpdates, setSeenUpdates] = useState(updates);
+  if (seenUpdates !== updates) {
+    setSeenUpdates(updates);
+    setDisposed(new Set());
+    setLeaving(null);
+  }
 
   function mutate(fn: () => Promise<unknown>) {
     run(async () => {
@@ -107,14 +116,35 @@ export function MonitoringView({
     });
   }
 
+  /**
+   * Acting on a change removes it from the filter it was read under. In "All
+   * changes" nothing leaves, so the row simply updates in place instead.
+   */
+  function act(id: string, work: () => Promise<unknown>) {
+    if (filter === "all") {
+      mutate(work);
+      return;
+    }
+    setLeaving(id);
+    run(async () => {
+      await work();
+      await new Promise((resolve) => setTimeout(resolve, 170));
+      setDisposed((previous) => new Set(previous).add(id));
+      setLeaving(null);
+      router.refresh();
+    });
+  }
+
+  const present = updates.filter((u) => !disposed.has(u.id));
+
   const counts = {
-    unreviewed: updates.filter((u) => u.reviewState === "UNREVIEWED").length,
-    reviewed: updates.filter((u) => u.reviewState === "REVIEWED").length,
-    dismissed: updates.filter((u) => u.reviewState === "DISMISSED").length,
-    all: updates.length,
+    unreviewed: present.filter((u) => u.reviewState === "UNREVIEWED").length,
+    reviewed: present.filter((u) => u.reviewState === "REVIEWED").length,
+    dismissed: present.filter((u) => u.reviewState === "DISMISSED").length,
+    all: present.length,
   };
 
-  const visible = updates.filter((u) => {
+  const visible = present.filter((u) => {
     if (filter === "all") return true;
     if (filter === "unreviewed") return u.reviewState === "UNREVIEWED";
     if (filter === "reviewed") return u.reviewState === "REVIEWED";
@@ -129,374 +159,304 @@ export function MonitoringView({
         : JURISDICTIONS.map((j) => ({ value: j.code, label: j.name }));
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+    <div className="rise">
       {/* ------------------------------------------------- Change feed */}
-      <div className="space-y-4">
-        <div className="flex flex-wrap items-center gap-2 rounded-card border border-line bg-surface p-3">
-          <div className="flex flex-wrap gap-1.5">
-            {(
-              [
-                ["unreviewed", "Needs review"],
-                ["all", "All changes"],
-                ["reviewed", "Reviewed"],
-                ["dismissed", "Dismissed"],
-              ] as [FeedFilter, string][]
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setFilter(key)}
-                className={cn(
-                  "rounded-full border px-2.5 py-1 text-xs transition-colors",
-                  filter === key
-                    ? "border-brand bg-brand-soft font-medium text-brand"
-                    : "border-line text-ink-soft hover:border-brand-ring",
-                )}
-              >
-                {label}
-                <span className="ml-1.5 tabular opacity-70">{counts[key]}</span>
-              </button>
-            ))}
-          </div>
-
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className="ml-auto"
-            disabled={pending}
-            onClick={() =>
-              mutate(async () => {
-                const result = await runMonitoringCheck();
-                setMessage(
-                  `Checked ${result.checked} monitored item${result.checked === 1 ? "" : "s"} against the seeded change records.`,
-                );
-              })
-            }
-          >
-            <RefreshCw className={cn("size-3.5", pending && "animate-spin")} />
-            Run a check now
-          </Button>
+      <div className="flex flex-wrap items-center gap-x-1 gap-y-2 border-b border-line pb-3">
+        <div className="-ml-2.5 flex flex-wrap items-center">
+          {FILTERS.map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              aria-pressed={filter === key}
+              onClick={() => setFilter(key)}
+              className={cn(
+                "rounded-md px-2.5 py-1 text-[13px] transition-colors",
+                filter === key
+                  ? "bg-surface-muted font-medium text-ink"
+                  : "text-ink-muted hover:text-ink",
+              )}
+            >
+              {label} <span className="tabular text-ink-muted">{counts[key]}</span>
+            </button>
+          ))}
         </div>
 
-        {message ? (
-          <p className="rounded-lg border border-line bg-surface-muted px-3 py-2 text-xs text-ink-soft">
-            {message}
-          </p>
-        ) : null}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="ml-auto"
+          disabled={pending}
+          onClick={() =>
+            mutate(async () => {
+              const result = await runMonitoringCheck();
+              setMessage(
+                `Checked ${result.checked} monitored item${result.checked === 1 ? "" : "s"} against the seeded change records.`,
+              );
+            })
+          }
+        >
+          Run a check now
+        </Button>
+      </div>
 
-        {visible.length === 0 ? (
-          <EmptyState
-            title={
-              updates.length === 0
-                ? "No changes detected yet"
-                : filter === "unreviewed"
-                  ? "Everything has been reviewed"
-                  : "Nothing in this view"
-            }
-            description={
-              updates.length === 0
-                ? "Add something to monitoring and detected changes will appear here."
-                : undefined
-            }
-          />
-        ) : (
-          <ul className="space-y-2.5">
-            {visible.map((update, index) => (
-              <li key={update.id} style={{ ["--rise-i" as string]: index }} className="slide-in">
-                <Card
-                  id={`update-${update.id}`}
+      {message ? (
+        <p role="status" className="pt-3 text-[13px] text-ink-soft">
+          {message}
+        </p>
+      ) : null}
+
+      {visible.length === 0 ? (
+        <div className="py-14">
+          <p className="text-title font-semibold text-ink">
+            {updates.length === 0
+              ? "Nothing has changed yet"
+              : filter === "unreviewed"
+                ? "You’re clear."
+                : "Nothing in this view"}
+          </p>
+          <p className="mt-3 max-w-md text-[15px] leading-7 text-ink-soft">
+            {updates.length === 0
+              ? "Add a policy, topic, industry or jurisdiction to monitoring and detected changes will appear here."
+              : filter === "unreviewed"
+                ? "Every detected change has been read. New ones will arrive at the top of this list."
+                : "Try another filter to see the rest of the feed."}
+          </p>
+        </div>
+      ) : (
+        <ul>
+          {visible.map((update) => {
+            const critical = update.importance === "CRITICAL" && update.reviewState === "UNREVIEWED";
+            const eyebrow = [
+              UPDATE_TYPE_LABEL[update.type],
+              update.jurisdiction,
+              relativeTime(update.detectedAt),
+              update.reviewState === "REVIEWED"
+                ? "reviewed"
+                : update.reviewState === "DISMISSED"
+                  ? "dismissed"
+                  : null,
+            ].filter(Boolean);
+
+            return (
+              <li
+                key={update.id}
+                id={`update-${update.id}`}
+                className={cn(
+                  "border-b border-line last:border-b-0",
+                  leaving === update.id && "dispose",
+                )}
+              >
+                <div
                   className={cn(
-                    "lift",
-                    update.id === highlightUpdateId && "border-brand ring-1 ring-brand-ring",
+                    "py-6",
+                    update.id === highlightUpdateId && "-mx-3 rounded-md bg-surface-muted px-3",
                   )}
                 >
-                  {/*
-                    Row grammar: severity is the spine, relevance is the meter,
-                    and the single remaining chip says what kind of change it is.
-                    Three competing pills become one word and two silent signals.
-                  */}
-                  <Spine
-                    severity={severityFromImportance(update.importance)}
-                    label={`${update.importance.toLowerCase()} importance`}
-                    className="space-y-3 p-5 pl-6"
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <UpdateTypeBadge type={update.type} />
-                      <Meter
-                        value={update.relevanceScore}
-                        label={`Relevance to this business: ${update.relevanceScore} of 100`}
-                      />
-                      {update.reviewState === "REVIEWED" ? <Badge tone="success">Reviewed</Badge> : null}
-                      {update.reviewState === "DISMISSED" ? <Badge tone="neutral">Dismissed</Badge> : null}
-                      <span className="ml-auto text-xs text-ink-muted">
-                        {relativeTime(update.detectedAt)}
-                      </span>
-                    </div>
+                  <p className="text-xs text-ink-muted">
+                    {critical ? (
+                      <>
+                        <span className="font-medium text-alert">Critical</span>
+                        {" · "}
+                      </>
+                    ) : null}
+                    {eyebrow.join(" · ")}
+                  </p>
 
-                    <div>
-                      <p className="text-[15px] font-semibold tracking-[-0.006em] text-ink">
-                        {update.title}
-                      </p>
-                      <p className="mt-1 text-sm leading-6 text-ink-soft">{update.description}</p>
-                    </div>
+                  <h3 className="mt-2 text-title font-semibold text-balance text-ink">
+                    {update.title}
+                  </h3>
 
-                    <p className="text-xs text-ink-muted">
-                      <Link
-                        href={`/policies/${update.policyId}`}
-                        className="font-medium text-brand hover:underline"
+                  <p className="mt-2 max-w-2xl text-[15px] leading-7 text-ink-soft">
+                    {update.description}
+                  </p>
+
+                  <p className="mt-2 text-[13px] text-ink-muted">
+                    <Link
+                      href={`/policies/${update.policyId}`}
+                      className="text-ink-soft underline decoration-line-strong underline-offset-4 hover:text-ink"
+                    >
+                      {update.policyTitle}
+                    </Link>
+                    {` · ${update.policyAgency}`}
+                    {update.relevanceBand === "high" ? " · closely matches your profile" : ""}
+                  </p>
+
+                  <div className="mt-4 flex flex-wrap items-center gap-x-1 gap-y-2">
+                    {update.reviewState !== "REVIEWED" ? (
+                      <Button
+                        type="button"
+                        disabled={pending}
+                        onClick={() => act(update.id, () => setUpdateReviewState(update.id, "REVIEWED"))}
                       >
-                        {update.policyTitle}
-                      </Link>{" "}
-                      · {update.jurisdiction} · {update.policyAgency}
-                    </p>
+                        Mark reviewed
+                      </Button>
+                    ) : null}
 
-                    {/* One primary — the action that moves the risk score. */}
-                    <div className="flex flex-wrap items-center gap-1.5 border-t border-line pt-3">
-                      {update.reviewState !== "REVIEWED" ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          disabled={pending}
-                          onClick={() => mutate(() => setUpdateReviewState(update.id, "REVIEWED"))}
-                        >
-                          <Check className="size-3.5" />
-                          Mark reviewed
-                        </Button>
-                      ) : null}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      disabled={pending}
+                      onClick={() =>
+                        run(async () => {
+                          const result = await createTaskFromUpdate(update.id);
+                          if (!result.ok) {
+                            setMessage(result.error);
+                            return;
+                          }
+                          router.push(`/planner?task=${result.taskId}`);
+                        })
+                      }
+                    >
+                      Turn into a task
+                    </Button>
+
+                    <Link
+                      href={`/analyst?policy=${update.policyId}`}
+                      className={buttonVariants({ variant: "ghost" })}
+                    >
+                      Ask the Analyst
+                    </Link>
+
+                    {update.reviewState === "DISMISSED" ? (
                       <Button
                         type="button"
                         variant="ghost"
-                        size="sm"
                         disabled={pending}
                         onClick={() =>
-                          run(async () => {
-                            const result = await createTaskFromUpdate(update.id);
-                            if (!result.ok) {
-                              setMessage(result.error);
-                              return;
-                            }
-                            router.push(`/planner?task=${result.taskId}`);
-                          })
+                          act(update.id, () => setUpdateReviewState(update.id, "UNREVIEWED"))
                         }
                       >
-                        <ListPlus className="size-3.5" />
-                        Create task
+                        Restore
                       </Button>
-                      <Link
-                        href={`/analyst?policy=${update.policyId}`}
-                        className={buttonVariants({ variant: "ghost", size: "sm" })}
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        disabled={pending}
+                        onClick={() =>
+                          act(update.id, () => setUpdateReviewState(update.id, "DISMISSED"))
+                        }
                       >
-                        <Sparkles className="size-3.5" />
-                        Ask the Analyst
-                      </Link>
+                        Dismiss
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
-                      {/* Contained so the document-level close handler does not
-                          swallow the very click that opens the menu. */}
-                      <div className="relative ml-auto" onClick={(event) => event.stopPropagation()}>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          aria-haspopup="true"
-                          aria-expanded={menuFor === update.id}
-                          aria-label="More actions"
-                          onClick={() => setMenuFor((id) => (id === update.id ? null : update.id))}
-                        >
-                          <MoreHorizontal className="size-4" />
-                        </Button>
-                        {menuFor === update.id ? (
-                          <div className="nav-rail-out absolute right-0 top-full z-30 mt-1 w-52 rounded-lg border border-line bg-surface py-1 shadow-lg">
-                            <Link
-                              href={`/policies/${update.policyId}`}
-                              onClick={() => setMenuFor(null)}
-                              className="block px-3 py-2 text-sm text-ink-soft transition-colors hover:bg-surface-muted hover:text-ink"
-                            >
-                              Open the update
-                            </Link>
-                            {update.reviewState !== "DISMISSED" ? (
-                              <button
-                                type="button"
-                                disabled={pending}
-                                onClick={() => {
-                                  setMenuFor(null);
-                                  mutate(() => setUpdateReviewState(update.id, "DISMISSED"));
-                                }}
-                                className="block w-full px-3 py-2 text-left text-sm text-ink-soft transition-colors hover:bg-surface-muted hover:text-ink disabled:opacity-60"
-                              >
-                                Dismiss
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                disabled={pending}
-                                onClick={() => {
-                                  setMenuFor(null);
-                                  mutate(() => setUpdateReviewState(update.id, "UNREVIEWED"));
-                                }}
-                                className="block w-full px-3 py-2 text-left text-sm text-ink-soft transition-colors hover:bg-surface-muted hover:text-ink disabled:opacity-60"
-                              >
-                                Restore
-                              </button>
-                            )}
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </Spine>
-                </Card>
+      {/* ------------------------------------------------- What is watched */}
+      <section className="mt-14 border-t border-line pt-6">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-xs font-medium text-ink-muted">What you are monitoring</h2>
+          {adding ? null : (
+            <Button type="button" variant="ghost" size="sm" onClick={() => setAdding(true)}>
+              Add something to watch
+            </Button>
+          )}
+        </div>
+
+        {adding ? (
+          <div className="mt-3 max-w-md space-y-4">
+            <Field label="Watch a">
+              <Select
+                value={newTarget.type}
+                onChange={(e) => {
+                  const type = e.target.value as Exclude<MonitorTargetType, "POLICY">;
+                  setNewTarget({
+                    type,
+                    key:
+                      type === "TOPIC"
+                        ? COMPLIANCE_TOPICS[0].key
+                        : type === "INDUSTRY"
+                          ? INDUSTRIES[0].key
+                          : JURISDICTIONS[0].code,
+                  });
+                }}
+              >
+                <option value="TOPIC">Regulatory topic</option>
+                <option value="INDUSTRY">Industry</option>
+                <option value="JURISDICTION">Jurisdiction</option>
+              </Select>
+            </Field>
+            <Field label="Which one">
+              <Select
+                value={newTarget.key}
+                onChange={(e) => setNewTarget((t) => ({ ...t, key: e.target.value }))}
+              >
+                {targetOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <div className="flex items-center gap-1">
+              <Button
+                type="button"
+                size="sm"
+                disabled={pending}
+                onClick={() =>
+                  mutate(async () => {
+                    const label =
+                      targetOptions.find((o) => o.value === newTarget.key)?.label ?? newTarget.key;
+                    await addMonitorTarget(newTarget.type, newTarget.key, label);
+                    setAdding(false);
+                    setMessage(`Now monitoring ${label}.`);
+                  })
+                }
+              >
+                Start monitoring
+              </Button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setAdding(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
+        {monitors.length === 0 ? (
+          <p className="mt-3 max-w-md text-[13px] leading-6 text-ink-muted">
+            Nothing is being watched yet. Open a policy and choose “Add to monitoring”, or add a
+            topic, industry or jurisdiction here.
+          </p>
+        ) : (
+          <ul className="mt-2">
+            {monitors.map((monitor) => (
+              <li key={monitor.id} className="flex items-baseline gap-3 py-2">
+                <span className="min-w-0 flex-1 text-[13px] text-ink-soft">
+                  {monitor.policyId ? (
+                    <Link
+                      href={`/policies/${monitor.policyId}`}
+                      className="underline decoration-line-strong underline-offset-4 hover:text-ink"
+                    >
+                      {monitor.label}
+                    </Link>
+                  ) : (
+                    monitor.label
+                  )}
+                </span>
+                <span className="tabular shrink-0 text-xs text-ink-muted">
+                  {TARGET_LABEL[monitor.targetType]} · checked {formatDate(monitor.lastChecked)}
+                </span>
+                <button
+                  type="button"
+                  aria-label={`Stop monitoring ${monitor.label}`}
+                  disabled={pending}
+                  onClick={() => mutate(() => removeMonitor(monitor.id))}
+                  className="shrink-0 rounded p-1 text-ink-muted transition-colors hover:text-ink disabled:opacity-50"
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
               </li>
             ))}
           </ul>
         )}
-      </div>
-
-      {/* ------------------------------------------------- Monitored items */}
-      <aside className="space-y-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>What you are monitoring</CardTitle>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setAdding((v) => !v)}>
-              <Plus className="size-3.5" />
-              Add
-            </Button>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {adding ? (
-              <div className="space-y-2.5 rounded-lg border border-line bg-surface-muted p-3">
-                <Field label="Watch a">
-                  <Select
-                    value={newTarget.type}
-                    onChange={(e) => {
-                      const type = e.target.value as Exclude<MonitorTargetType, "POLICY">;
-                      setNewTarget({
-                        type,
-                        key:
-                          type === "TOPIC"
-                            ? COMPLIANCE_TOPICS[0].key
-                            : type === "INDUSTRY"
-                              ? INDUSTRIES[0].key
-                              : JURISDICTIONS[0].code,
-                      });
-                    }}
-                  >
-                    <option value="TOPIC">Regulatory topic</option>
-                    <option value="INDUSTRY">Industry</option>
-                    <option value="JURISDICTION">Jurisdiction</option>
-                  </Select>
-                </Field>
-                <Field label="Which one">
-                  <Select
-                    value={newTarget.key}
-                    onChange={(e) => setNewTarget((t) => ({ ...t, key: e.target.value }))}
-                  >
-                    {targetOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={pending}
-                    onClick={() =>
-                      mutate(async () => {
-                        const label =
-                          targetOptions.find((o) => o.value === newTarget.key)?.label ?? newTarget.key;
-                        await addMonitorTarget(newTarget.type, newTarget.key, label);
-                        setAdding(false);
-                        setMessage(`Now monitoring ${label}.`);
-                      })
-                    }
-                  >
-                    Start monitoring
-                  </Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setAdding(false)}>
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-
-            {monitors.length === 0 ? (
-              <p className="text-sm text-ink-muted">
-                Nothing monitored yet. Open a policy and choose “Add to monitoring”, or add a topic,
-                industry or jurisdiction here.
-              </p>
-            ) : (
-              <ul className="space-y-2">
-                {monitors.map((monitor, index) => (
-                  <li
-                    key={monitor.id}
-                    style={{ ["--rise-i" as string]: index }}
-                    className="slide-in group rounded-lg border border-line"
-                  >
-                    {/* Same grammar as the feed: severity on the edge, relevance
-                        as a meter, and the label grid that repeated three rows
-                        per item collapsed to one line of dated text. */}
-                    <Spine
-                      severity={monitor.importance ? severityFromImportance(monitor.importance) : "clear"}
-                      label={
-                        monitor.importance ? `${monitor.importance.toLowerCase()} importance` : "monitored"
-                      }
-                      className="p-3 pl-4"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <Badge tone="neutral">{TARGET_LABEL[monitor.targetType]}</Badge>
-                          {monitor.policyId ? (
-                            <Link
-                              href={`/policies/${monitor.policyId}`}
-                              className="mt-1.5 block text-xs font-medium text-brand hover:underline"
-                            >
-                              {monitor.label}
-                            </Link>
-                          ) : (
-                            <p className="mt-1.5 text-xs font-medium text-ink">{monitor.label}</p>
-                          )}
-                        </div>
-                        <button
-                          type="button"
-                          aria-label={`Stop monitoring ${monitor.label}`}
-                          disabled={pending}
-                          onClick={() => mutate(() => removeMonitor(monitor.id))}
-                          className="rounded p-1 text-ink-muted opacity-0 transition-opacity hover:text-danger focus-visible:opacity-100 group-hover:opacity-100"
-                        >
-                          <Trash2 className="size-3.5" />
-                        </button>
-                      </div>
-
-                      <p className="tabular mt-1.5 text-[11px] text-ink-muted">
-                        checked {formatDate(monitor.lastChecked)}
-                        {monitor.latestChangeAt
-                          ? ` · changed ${formatDate(monitor.latestChangeAt)}`
-                          : " · no change detected"}
-                      </p>
-
-                      {monitor.latestChangeTitle ? (
-                        <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-ink-soft">
-                          {monitor.latestChangeTitle}
-                        </p>
-                      ) : null}
-
-                      {monitor.relevanceScore !== null ? (
-                        <Meter
-                          value={monitor.relevanceScore}
-                          label={`Relevance ${monitor.relevanceScore} of 100`}
-                          className="mt-1.5"
-                        />
-                      ) : null}
-                    </Spine>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-      </aside>
+      </section>
     </div>
   );
 }

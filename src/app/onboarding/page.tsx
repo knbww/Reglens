@@ -79,31 +79,33 @@ export default async function OnboardingPage({
       }
     : undefined;
 
+  const editing = Boolean(business && (isEdit || business.onboardingCompleted));
+
+  /*
+   * The wizard owns the heading: on an interview the question is the page.
+   * This shell keeps only the way out and, when you are amending an existing
+   * business, the name of the thing you are amending.
+   */
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="border-b border-line bg-surface">
-        <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-4 px-4 py-3.5 sm:px-6">
+      <header className="border-b border-line">
+        <div className="mx-auto flex w-full max-w-2xl items-center justify-between gap-4 px-4 py-3.5 sm:px-6">
           <Link href="/dashboard">
             <Logo />
           </Link>
-          <Link href="/dashboard" className="text-sm text-ink-muted hover:text-ink">
-            Skip for now
+          <Link
+            href="/dashboard"
+            className="text-[13px] text-ink-muted underline decoration-line-strong underline-offset-4 hover:text-ink"
+          >
+            {editing ? "Back to RegLens" : "Skip for now"}
           </Link>
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-8 sm:px-6">
-        <div className="mb-6">
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">
-            {business && (isEdit || business.onboardingCompleted)
-              ? `Edit ${business.name}`
-              : "Tell RegLens about your business"}
-          </h1>
-          <p className="mt-1.5 max-w-2xl text-sm leading-6 text-ink-soft">
-            Everything RegLens shows you — which policies rank first, what the AI Analyst says, your risk score
-            and your reminders — comes from these answers. It takes about three minutes.
-          </p>
-        </div>
+      <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-10 sm:px-6">
+        {editing && business ? (
+          <p className="mb-6 text-xs text-ink-muted">Editing {business.name}</p>
+        ) : null}
 
         <OnboardingWizard
           initial={initial}

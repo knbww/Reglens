@@ -1,7 +1,11 @@
+/*
+ * The question this page answers:
+ * "What has RegLens told me that I have not dealt with?"
+ * One primary action: clear the list.
+ */
 import type { Metadata } from "next";
 
 import { NotificationList, type NotificationRow } from "@/components/app/notification-list";
-import { InlineNote, PageHeader } from "@/components/ui/misc";
 import { prisma } from "@/lib/prisma";
 import { requireActiveBusiness } from "@/lib/session";
 
@@ -26,17 +30,26 @@ export default async function NotificationsPage() {
     createdAt: n.createdAt.toISOString(),
   }));
 
-  return (
-    <div className="space-y-5">
-      <PageHeader
-        title="Notifications"
-        description={`In-app alerts for ${business.name} — reminders inside their advance window and changes to what you monitor.`}
-      />
+  const unread = rows.filter((n) => !n.read).length;
+  const headline =
+    rows.length === 0
+      ? "Nothing has come in"
+      : unread === 0
+        ? "You have read everything"
+        : unread === 1
+          ? "One notification you have not read"
+          : `${unread} notifications you have not read`;
 
-      <InlineNote tone="info">
-        RegLens delivers notifications in the app only. Email, SMS and push delivery are not implemented in this
-        version.
-      </InlineNote>
+  return (
+    <div className="mx-auto max-w-2xl pb-10">
+      <header className="rise pb-6">
+        <p className="text-xs text-ink-muted">{business.name}</p>
+        <h1 className="mt-3 text-display font-semibold text-balance text-ink">{headline}</h1>
+        <p className="mt-3 max-w-2xl text-[13px] leading-6 text-ink-soft">
+          Reminders inside their advance window, and changes to the policies you monitor. RegLens delivers
+          these in the app only — there is no email, SMS or push in this version.
+        </p>
+      </header>
 
       <NotificationList notifications={rows} />
     </div>

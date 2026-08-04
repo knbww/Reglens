@@ -20,7 +20,7 @@ export function SignInForm({ next }: { next: string }) {
   const [state, formAction] = useActionState<AuthState, FormData>(signIn, {});
 
   return (
-    <form action={formAction} className="space-y-4">
+    <form action={formAction} className="space-y-5">
       <input type="hidden" name="next" value={next} />
       <Field label="Email" htmlFor="email">
         <Input id="email" name="email" type="email" autoComplete="email" required placeholder="you@company.com" />
@@ -35,8 +35,9 @@ export function SignInForm({ next }: { next: string }) {
           placeholder="At least 8 characters"
         />
       </Field>
+      {/* Validation is a sentence, not a tinted box. The word carries it. */}
       {state.error ? (
-        <p role="alert" className="rounded-lg border border-danger/25 bg-danger-soft px-3 py-2 text-xs text-danger">
+        <p role="alert" className="text-[13px] leading-6 text-alert">
           {state.error}
         </p>
       ) : null}

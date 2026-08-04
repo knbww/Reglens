@@ -1,27 +1,27 @@
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import type { PolicyStatus } from "@prisma/client";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { PolicyActions } from "@/components/app/policy-actions";
-import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { DefinitionList, InlineNote } from "@/components/ui/misc";
-import {
-  ImportanceBadge,
-  PolicyStatusBadge,
-  RelevanceBadge,
-  SampleDataBadge,
-  UpdateTypeBadge,
-} from "@/components/ui/status";
+import { UPDATE_TYPE_LABEL } from "@/components/ui/status";
 import { jurisdictionName } from "@/data/jurisdictions";
 import type { PolicyDeadline, PolicyRequirement } from "@/data/policies";
-import { formatDate, formatPolicyDeadlineDate, relativeTime } from "@/lib/format";
+import { enumLabel, formatDate, formatPolicyDeadlineDate, relativeTime } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
-import { scoreRelevance } from "@/lib/relevance";
+import { relevanceLabel, scoreRelevance } from "@/lib/relevance";
 import { requireActiveBusiness } from "@/lib/session";
 import { countryName, DISCLAIMER, topicLabel } from "@/lib/taxonomy";
+
+/* This page answers: what does this rule actually ask of me? */
+
+const STATUS_TEXT: Record<PolicyStatus, string> = {
+  IN_FORCE: "In force",
+  PROPOSED: "Proposed",
+  PENDING_EFFECTIVE: "Not yet in force",
+  AMENDED: "Amended",
+  REPEALED: "Repealed",
+};
 
 export async function generateMetadata({
   params,
@@ -31,6 +31,22 @@ export async function generateMetadata({
   const { id } = await params;
   const policy = await prisma.policy.findUnique({ where: { id }, select: { title: true } });
   return { title: policy?.title ?? "Policy" };
+}
+
+/** A section of the document: a rule, a heading, then room to read. */
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="mt-12 border-t border-line pt-7">
+      <h2 className="text-title font-semibold text-ink">{title}</h2>
+      <div className="mt-4">{children}</div>
+    </section>
+  );
 }
 
 export default async function PolicyDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -66,297 +82,293 @@ export default async function PolicyDetailPage({ params }: { params: Promise<{ i
   const deadlines = (policy.deadlines as unknown as PolicyDeadline[]) ?? [];
 
   return (
-    <div className="space-y-5">
-      <Link href="/policies" className="inline-flex items-center gap-1.5 text-sm text-ink-muted hover:text-ink">
-        <ArrowLeft className="size-4" />
-        Back to policy search
+    <div className="mx-auto max-w-2xl pb-12">
+      <Link
+        href="/policies"
+        className="text-[13px] text-ink-muted transition-colors hover:text-ink"
+      >
+        ← Back to policy search
       </Link>
 
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <PolicyStatusBadge status={policy.status} />
-          <ImportanceBadge importance={policy.importance} />
-          <RelevanceBadge band={relevance.band} score={relevance.score} />
-          {policy.isSampleData ? <SampleDataBadge /> : null}
-        </div>
-        <h1 className="text-2xl font-semibold leading-tight tracking-tight text-ink">{policy.title}</h1>
-        <p className="text-sm text-ink-muted">
+      <header className="rise mt-6">
+        <p className="text-xs text-ink-muted">
           {jurisdictionName(policy.jurisdictionCode)} · {policy.agency} · {countryName(policy.country)}
         </p>
+
+        <h1 className="mt-3 text-display font-semibold text-balance text-ink">{policy.title}</h1>
+
+        <p className="mt-3 text-[13px] text-ink-muted">
+          {STATUS_TEXT[policy.status]} · Effective{" "}
+          <span className="tabular">{formatDate(policy.effectiveAt)}</span> · Last updated{" "}
+          <span className="tabular">{formatDate(policy.lastUpdatedAt)}</span> ·{" "}
+          {relevanceLabel(relevance.band).toLowerCase()} to {business.name}
+        </p>
+      </header>
+
+      {/* The plain-language summary is the reason this page exists, so it gets
+          the lead position and reading-length measure rather than a card. */}
+      <div className="rise mt-7">
+        <p className="text-[15px] leading-7 text-ink">{policy.plainSummary}</p>
+        {policy.fullSummary ? (
+          <p className="mt-4 text-[15px] leading-7 text-ink-soft">{policy.fullSummary}</p>
+        ) : null}
       </div>
 
       <PolicyActions
+        className="mt-7"
         policyId={policy.id}
         topic={policy.topicTags[0] ?? null}
         initialSaved={Boolean(saved)}
         initialMonitored={Boolean(monitored)}
       />
 
-      <div className="grid gap-5 lg:grid-cols-3">
-        <div className="space-y-5 lg:col-span-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>What this means in plain language</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-sm leading-6 text-ink-soft">{policy.plainSummary}</p>
-              {policy.fullSummary ? (
-                <p className="text-sm leading-6 text-ink-muted">{policy.fullSummary}</p>
-              ) : null}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Who may be affected</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ul className="space-y-1.5">
-                {policy.affectedOrgs.map((org) => (
-                  <li key={org} className="flex gap-2 text-sm text-ink-soft">
-                    <span className="mt-2 size-1.5 shrink-0 rounded-full bg-brand" />
-                    {org}
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Main requirements</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {requirements.length === 0 ? (
-                <p className="text-sm text-ink-muted">No itemised requirements are recorded for this policy.</p>
-              ) : (
-                requirements.map((requirement, index) => (
-                  <div key={requirement.title} className="rounded-lg border border-line p-3">
-                    <p className="text-sm font-medium text-ink">
-                      <span className="mr-2 text-ink-muted tabular">{index + 1}.</span>
-                      {requirement.title}
-                    </p>
-                    <p className="mt-1 pl-6 text-sm leading-6 text-ink-soft">{requirement.detail}</p>
+      <Section title="What it asks you to do">
+        {requirements.length === 0 ? (
+          <p className="text-[15px] leading-7 text-ink-soft">
+            No itemised requirements are recorded for this policy. The summary above is the whole of
+            what RegLens holds — check the source before relying on it.
+          </p>
+        ) : (
+          <ol>
+            {requirements.map((requirement, index) => (
+              <li
+                key={requirement.title}
+                className="border-b border-line py-4 first:pt-0 last:border-b-0 last:pb-0"
+              >
+                <div className="flex gap-3">
+                  <span className="tabular mt-0.5 shrink-0 text-[13px] text-ink-muted">
+                    {index + 1}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[15px] font-medium leading-6 text-ink">{requirement.title}</p>
+                    <p className="mt-1.5 text-[15px] leading-7 text-ink-soft">{requirement.detail}</p>
                   </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Possible consequences</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {policy.consequences.length === 0 ? (
-                <p className="text-sm text-ink-muted">No consequences are recorded for this policy.</p>
-              ) : (
-                <ul className="space-y-1.5">
-                  {policy.consequences.map((consequence) => (
-                    <li key={consequence} className="flex gap-2 text-sm text-ink-soft">
-                      <span className="mt-2 size-1.5 shrink-0 rounded-full bg-danger" />
-                      {consequence}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Relevant deadlines</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              {deadlines.length === 0 ? (
-                <p className="px-5 py-4 text-sm text-ink-muted">No deadlines are recorded for this policy.</p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[560px] text-sm">
-                    <thead>
-                      <tr className="border-b border-line text-left text-xs text-ink-muted">
-                        <th className="px-5 py-2 font-medium">Deadline</th>
-                        <th className="px-3 py-2 font-medium">When</th>
-                        <th className="px-3 py-2 font-medium">Recurrence</th>
-                        <th className="px-5 py-2 font-medium">Detail</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-line">
-                      {deadlines.map((deadline) => (
-                        <tr key={deadline.label} className="align-top">
-                          <td className="px-5 py-2.5 font-medium text-ink">{deadline.label}</td>
-                          <td className="px-3 py-2.5 text-ink-soft tabular">
-                            {formatPolicyDeadlineDate(deadline.date)}
-                          </td>
-                          <td className="px-3 py-2.5 text-ink-soft">
-                            {deadline.recurrence.replace(/_/g, " ")}
-                          </td>
-                          <td className="px-5 py-2.5 text-ink-muted">{deadline.description}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
                 </div>
-              )}
-            </CardContent>
-          </Card>
+              </li>
+            ))}
+          </ol>
+        )}
+      </Section>
 
-          {policy.updates.length > 0 ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>Change history</CardTitle>
-                <Link href="/monitoring" className="text-xs font-medium text-brand hover:underline">
-                  Open monitoring
-                </Link>
-              </CardHeader>
-              <CardContent className="space-y-2.5">
-                {policy.updates.map((update) => (
-                  <div key={update.id} className="rounded-lg border border-line p-3">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <UpdateTypeBadge type={update.type} />
-                      <span className="ml-auto text-xs text-ink-muted">{relativeTime(update.detectedAt)}</span>
-                    </div>
-                    <p className="mt-1.5 text-sm font-medium text-ink">{update.title}</p>
-                    <p className="mt-0.5 text-xs leading-5 text-ink-muted">{update.description}</p>
-                  </div>
-                ))}
-                {policy.versions.length > 0 ? (
-                  <div className="border-t border-line pt-2.5">
-                    <p className="text-xs font-medium text-ink-muted">Versions on record</p>
-                    <ul className="mt-1.5 space-y-1">
-                      {policy.versions.map((version) => (
-                        <li key={version.id} className="text-xs text-ink-soft">
-                          <span className="font-medium text-ink tabular">v{version.version}</span> · effective{" "}
-                          {formatDate(version.effectiveAt)} — {version.summary}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-              </CardContent>
-            </Card>
-          ) : null}
-        </div>
+      <Section title="Dates that matter">
+        <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-3">
+          <div>
+            <dt className="text-[13px] text-ink-muted">Published</dt>
+            <dd className="tabular mt-0.5 text-[15px] text-ink">{formatDate(policy.publishedAt)}</dd>
+          </div>
+          <div>
+            <dt className="text-[13px] text-ink-muted">Effective</dt>
+            <dd className="tabular mt-0.5 text-[15px] text-ink">{formatDate(policy.effectiveAt)}</dd>
+          </div>
+          <div>
+            <dt className="text-[13px] text-ink-muted">Last updated</dt>
+            <dd className="tabular mt-0.5 text-[15px] text-ink">{formatDate(policy.lastUpdatedAt)}</dd>
+          </div>
+        </dl>
 
-        <div className="space-y-5">
-          <Card>
-            <CardHeader>
-              <CardTitle>Record details</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <DefinitionList
-                items={[
-                  { term: "Jurisdiction", value: jurisdictionName(policy.jurisdictionCode) },
-                  { term: "Level", value: policy.level.toLowerCase().replace(/^\w/, (c) => c.toUpperCase()) },
-                  { term: "Responsible agency", value: policy.agency },
-                  { term: "Country", value: countryName(policy.country) },
-                  { term: "Published", value: formatDate(policy.publishedAt) },
-                  { term: "Effective", value: formatDate(policy.effectiveAt) },
-                  { term: "Last updated", value: formatDate(policy.lastUpdatedAt) },
-                  {
-                    term: "Source",
-                    value: (
-                      <a
-                        href={policy.sourceUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-brand hover:underline"
-                      >
-                        {policy.sourceName}
-                        <ExternalLink className="size-3" />
-                      </a>
-                    ),
-                  },
-                ]}
-              />
-            </CardContent>
-          </Card>
+        {deadlines.length === 0 ? (
+          <p className="mt-5 text-[15px] leading-7 text-ink-soft">
+            No recurring deadline is recorded for this policy.
+          </p>
+        ) : (
+          <ul className="mt-6 border-t border-line">
+            {deadlines.map((deadline) => (
+              <li key={deadline.label} className="border-b border-line py-4">
+                <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                  <p className="text-[15px] font-medium text-ink">{deadline.label}</p>
+                  <p className="tabular text-[13px] text-ink-soft">
+                    {formatPolicyDeadlineDate(deadline.date)}
+                    {deadline.recurrence === "one_time"
+                      ? ""
+                      : `, ${deadline.recurrence.replace(/_/g, " ")}`}
+                  </p>
+                </div>
+                <p className="mt-1 text-[15px] leading-7 text-ink-soft">{deadline.description}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Relevance to {business.name}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2.5">
-              <RelevanceBadge band={relevance.band} score={relevance.score} />
-              <ul className="space-y-1.5">
-                {relevance.reasons.map((reason) => (
-                  <li key={reason} className="flex gap-2 text-sm text-ink-soft">
-                    <span className="mt-2 size-1.5 shrink-0 rounded-full bg-brand" />
-                    {reason}
+      <Section title={`Why this is ranked for ${business.name}`}>
+        <p className="text-[15px] leading-7 text-ink-soft">
+          {relevanceLabel(relevance.band)} — scored{" "}
+          <span className="tabular font-medium text-ink">{relevance.score}</span> out of 100 against
+          your profile, jurisdictions and stated priorities.
+        </p>
+        <ul className="mt-3">
+          {relevance.reasons.map((reason) => (
+            <li key={reason} className="text-[15px] leading-7 text-ink-soft">
+              {reason}
+            </li>
+          ))}
+        </ul>
+      </Section>
+
+      {policy.affectedOrgs.length > 0 ? (
+        <Section title="Who it applies to">
+          <ul>
+            {policy.affectedOrgs.map((org) => (
+              <li key={org} className="text-[15px] leading-7 text-ink-soft">
+                {org}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      ) : null}
+
+      {policy.consequences.length > 0 ? (
+        <Section title="If it is missed">
+          <ul>
+            {policy.consequences.map((consequence) => (
+              <li key={consequence} className="text-[15px] leading-7 text-ink-soft">
+                {consequence}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      ) : null}
+
+      {policy.updates.length > 0 ? (
+        <Section title="Recent changes">
+          <ul>
+            {policy.updates.map((update) => (
+              <li
+                key={update.id}
+                className="border-b border-line py-4 first:pt-0 last:border-b-0 last:pb-0"
+              >
+                <p className="text-xs text-ink-muted">
+                  {UPDATE_TYPE_LABEL[update.type]} · {relativeTime(update.detectedAt)}
+                </p>
+                <p className="mt-1 text-[15px] font-medium leading-6 text-ink">{update.title}</p>
+                <p className="mt-1 text-[15px] leading-7 text-ink-soft">{update.description}</p>
+              </li>
+            ))}
+          </ul>
+
+          {policy.versions.length > 0 ? (
+            <div className="mt-6">
+              <h3 className="text-xs font-medium text-ink-muted">Versions on record</h3>
+              <ul className="mt-2">
+                {policy.versions.map((version) => (
+                  <li key={version.id} className="text-[13px] leading-6 text-ink-soft">
+                    <span className="tabular font-medium text-ink">v{version.version}</span> ·
+                    effective {formatDate(version.effectiveAt)} — {version.summary}
                   </li>
                 ))}
               </ul>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Topics</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-wrap gap-1.5">
-              {policy.topicTags.map((tag) => (
-                <Link key={tag} href={`/policies?topic=${tag}`}>
-                  <Badge tone="neutral">{topicLabel(tag)}</Badge>
-                </Link>
-              ))}
-            </CardContent>
-          </Card>
-
-          {linkedTasks.length > 0 ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>Your tasks for this policy</CardTitle>
-                <Link href="/planner" className="text-xs font-medium text-brand hover:underline">
-                  Planner
-                </Link>
-              </CardHeader>
-              <CardContent className="space-y-1.5">
-                {linkedTasks.map((task) => (
-                  <Link
-                    key={task.id}
-                    href={`/planner?task=${task.id}`}
-                    className="block rounded-lg border border-line px-3 py-2 text-sm text-ink-soft transition-colors hover:border-brand-ring hover:text-ink"
-                  >
-                    {task.title}
-                    <span className="mt-0.5 block text-xs text-ink-muted">
-                      {task.status.toLowerCase().replace(/_/g, " ")}
-                      {task.dueDate ? ` · due ${formatDate(task.dueDate)}` : ""}
-                    </span>
-                  </Link>
-                ))}
-              </CardContent>
-            </Card>
+            </div>
           ) : null}
 
-          {related.length > 0 ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>Related policies</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-1.5">
-                {related.map((item) => (
-                  <Link
-                    key={item.id}
-                    href={`/policies/${item.id}`}
-                    className="block rounded-lg border border-line px-3 py-2 text-sm text-ink-soft transition-colors hover:border-brand-ring hover:text-ink"
-                  >
-                    {item.title}
-                    <span className="mt-0.5 block text-xs text-ink-muted">
-                      {jurisdictionName(item.jurisdictionCode)} · {item.agency}
-                    </span>
-                  </Link>
-                ))}
-              </CardContent>
-            </Card>
-          ) : null}
-
-          <InlineNote>{DISCLAIMER}</InlineNote>
-
-          <Link href={`/policies?jurisdiction=${policy.jurisdictionCode}`} className={`${buttonVariants({ variant: "secondary", size: "sm" })} w-full`}>
-            More from {jurisdictionName(policy.jurisdictionCode)}
+          <Link
+            href="/monitoring"
+            className="mt-4 inline-block text-[13px] text-ink underline decoration-line-strong underline-offset-4"
+          >
+            Open monitoring
           </Link>
-        </div>
-      </div>
+        </Section>
+      ) : null}
+
+      {linkedTasks.length > 0 ? (
+        <Section title="Your tasks for this policy">
+          <ul>
+            {linkedTasks.map((task) => (
+              <li key={task.id}>
+                <Link
+                  href={`/planner?task=${task.id}`}
+                  className="lift -mx-3 flex items-baseline justify-between gap-4 rounded-md px-3 py-2.5"
+                >
+                  <span className="min-w-0 text-[15px] text-ink-soft">{task.title}</span>
+                  <span className="shrink-0 text-[13px] text-ink-muted">
+                    {enumLabel(task.status)}
+                    {task.dueDate ? ` · due ${formatDate(task.dueDate)}` : ""}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      ) : null}
+
+      {related.length > 0 ? (
+        <Section title="Related policies">
+          <ul>
+            {related.map((item) => (
+              <li key={item.id}>
+                <Link
+                  href={`/policies/${item.id}`}
+                  className="lift -mx-3 block rounded-md px-3 py-2.5"
+                >
+                  <span className="block text-[15px] text-ink">{item.title}</span>
+                  <span className="mt-0.5 block text-[13px] text-ink-muted">
+                    {jurisdictionName(item.jurisdictionCode)} · {item.agency}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      ) : null}
+
+      {/* Reference material: quieter, and last. */}
+      <section className="mt-12 border-t border-line pt-6">
+        <h2 className="text-xs font-medium text-ink-muted">The record</h2>
+        <dl className="mt-3 grid gap-x-8 gap-y-3 sm:grid-cols-2">
+          <div>
+            <dt className="text-[13px] text-ink-muted">Jurisdiction</dt>
+            <dd className="mt-0.5 text-[13px] text-ink-soft">
+              {jurisdictionName(policy.jurisdictionCode)} · {enumLabel(policy.level)} level
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[13px] text-ink-muted">Responsible agency</dt>
+            <dd className="mt-0.5 text-[13px] text-ink-soft">{policy.agency}</dd>
+          </div>
+          <div>
+            <dt className="text-[13px] text-ink-muted">Source</dt>
+            <dd className="mt-0.5 text-[13px]">
+              <a
+                href={policy.sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-ink underline decoration-line-strong underline-offset-4"
+              >
+                {policy.sourceName}
+              </a>
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[13px] text-ink-muted">Topics</dt>
+            <dd className="mt-0.5 text-[13px] text-ink-soft">
+              {policy.topicTags.map((tag, index) => (
+                <span key={tag}>
+                  {index > 0 ? ", " : ""}
+                  <Link
+                    href={`/policies?topic=${tag}`}
+                    className="underline decoration-line-strong underline-offset-4 hover:text-ink"
+                  >
+                    {topicLabel(tag)}
+                  </Link>
+                </span>
+              ))}
+            </dd>
+          </div>
+        </dl>
+
+        <p className="mt-5 text-xs leading-5 text-ink-muted">
+          {policy.isSampleData
+            ? "This is an illustrative record summarising a real framework, not a live feed from the agency. "
+            : ""}
+          {DISCLAIMER}
+        </p>
+
+        <Link
+          href={`/policies?jurisdiction=${policy.jurisdictionCode}`}
+          className="mt-4 inline-block text-[13px] text-ink underline decoration-line-strong underline-offset-4"
+        >
+          More from {jurisdictionName(policy.jurisdictionCode)}
+        </Link>
+      </section>
     </div>
   );
 }

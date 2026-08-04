@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 
 import { ComparisonTool, type SavedComparisonRow } from "@/components/app/compare/comparison-tool";
-import { InlineNote, PageHeader } from "@/components/ui/misc";
 import type { ComparisonResult } from "@/lib/comparison";
 import { prisma } from "@/lib/prisma";
 import { requireActiveBusiness } from "@/lib/session";
 import { COMPLIANCE_TOPICS } from "@/lib/taxonomy";
 
 export const metadata: Metadata = { title: "Compare jurisdictions" };
+
+/* This page answers: what changes if I do this somewhere else? */
 
 export default async function ComparePage({
   searchParams,
@@ -57,16 +58,18 @@ export default async function ComparePage({
   }));
 
   return (
-    <div className="space-y-5">
-      <PageHeader
-        title="Compare jurisdictions"
-        description="Put two or more jurisdictions side by side for one regulatory topic — including the federal rules that sit above each state or province."
-      />
-
-      <InlineNote>
-        Comparisons are built from the RegLens sample dataset. Where a jurisdiction has no record for a topic,
-        that is a gap in the dataset rather than confirmation that nothing applies.
-      </InlineNote>
+    <div className="pb-10">
+      <header className="rise pb-7">
+        <p className="text-xs text-ink-muted">Compare jurisdictions · {business.name}</p>
+        <h1 className="mt-3 text-display font-semibold text-balance text-ink">
+          What differs between jurisdictions
+        </h1>
+        <p className="mt-3 max-w-2xl text-[13px] leading-6 text-ink-soft">
+          One topic, two or more places, including the national rules a state or province inherits.
+          Where RegLens holds no record the comparison says so, rather than letting silence read as
+          &ldquo;nothing applies&rdquo;.
+        </p>
+      </header>
 
       <ComparisonTool
         defaultTopic={defaultTopic}

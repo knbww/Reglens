@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 
 import { PlannerBoard, type PlannerPlan } from "@/components/app/planner/planner-board";
-import type { PlannerTask } from "@/components/app/planner/task-card";
-import { PageHeader, Stat } from "@/components/ui/misc";
+import type { PlannerTask } from "@/components/app/planner/task-row";
 import { daysUntil } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
 import { getRecommendedPolicies } from "@/lib/queries";
@@ -10,6 +9,11 @@ import { requireActiveBusiness } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Action planner" };
 
+/*
+ * The question this page answers: what work is still outstanding, and how much
+ * of it is already late? Everything else — plan counts, checklist progress,
+ * completed totals — is one supporting sentence, not four boxes.
+ */
 export default async function PlannerPage({
   searchParams,
 }: {
@@ -74,33 +78,48 @@ export default async function PlannerPage({
   const checklistItems = tasks.flatMap((t) => t.checklist);
   const checklistDone = checklistItems.filter((c) => c.done).length;
 
-  return (
-    <div className="space-y-5">
-      <PageHeader
-        title="Action planner"
-        description="Everything RegLens has turned into work — from policies, AI analyses, regulatory updates and comparisons."
-      />
+  const headline =
+    open.length === 0
+      ? plannerTasks.length === 0
+        ? "No work planned yet"
+        : "Nothing is outstanding"
+      : open.length === 1
+        ? "One task is still open"
+        : `${open.length} tasks are still open`;
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Open tasks" value={open.length} hint={`${plannerPlans.length} action plans`} />
-        <Stat
-          label="Overdue"
-          value={overdue.length}
-          tone={overdue.length > 0 ? "danger" : "success"}
-          hint={overdue.length > 0 ? "Start here" : "Nothing past its date"}
-        />
-        <Stat
-          label="Completed"
-          value={completed.length}
-          tone="success"
-          hint={`${plannerTasks.length} tasks in total`}
-        />
-        <Stat
-          label="Checklist progress"
-          value={checklistItems.length === 0 ? "—" : `${checklistDone}/${checklistItems.length}`}
-          hint="Steps ticked off across all tasks"
-        />
-      </div>
+  // The facts the four stat boxes used to carry, as a single line of type.
+  const summary: string[] = [];
+  if (plannerPlans.length > 0) {
+    summary.push(`${plannerPlans.length} ${plannerPlans.length === 1 ? "plan" : "plans"}`);
+  }
+  if (checklistItems.length > 0) {
+    summary.push(`${checklistDone} of ${checklistItems.length} steps ticked`);
+  }
+  if (completed.length > 0) summary.push(`${completed.length} done`);
+
+  return (
+    <div className="mx-auto max-w-4xl pb-10">
+      <header className="rise pb-6">
+        <p className="text-xs text-ink-muted">Action planner · {business.name}</p>
+
+        <h1 className="mt-3 text-display font-semibold text-balance text-ink">{headline}</h1>
+
+        {overdue.length > 0 || summary.length > 0 ? (
+          <p className="mt-3 text-[13px] text-ink-soft">
+            {overdue.length > 0 ? (
+              <span className="font-medium text-alert">
+                {overdue.length === 1
+                  ? "One is past its date"
+                  : `${overdue.length} are past their date`}
+                {summary.length > 0 ? " · " : ""}
+              </span>
+            ) : null}
+            {summary.length > 0 ? (
+              <span className="tabular text-ink-muted">{summary.join(" · ")}</span>
+            ) : null}
+          </p>
+        ) : null}
+      </header>
 
       <PlannerBoard
         tasks={plannerTasks}

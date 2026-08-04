@@ -5,7 +5,6 @@ import {
   type MonitorRow,
   type UpdateRow,
 } from "@/components/app/monitoring/monitoring-view";
-import { InlineNote, PageHeader, Stat } from "@/components/ui/misc";
 import { jurisdictionName } from "@/data/jurisdictions";
 import { prisma } from "@/lib/prisma";
 import { getRelevantUpdates } from "@/lib/queries";
@@ -14,6 +13,11 @@ import { requireActiveBusiness } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Regulatory monitoring" };
 
+/*
+ * The question this page answers: what has changed that affects me? The feed
+ * of detected changes is the page. What is being watched is reference material
+ * and sits underneath it, quieter, without repeating the feed's grammar.
+ */
 export default async function MonitoringPage({
   searchParams,
 }: {
@@ -73,40 +77,42 @@ export default async function MonitoringPage({
   });
 
   const unreviewed = updateRows.filter((u) => u.reviewState === "UNREVIEWED").length;
-  const critical = updateRows.filter(
-    (u) => u.importance === "CRITICAL" || u.importance === "HIGH",
-  ).length;
+
+  const headline =
+    unreviewed === 0
+      ? updateRows.length === 0
+        ? "Nothing has changed yet"
+        : "Every change has been read"
+      : unreviewed === 1
+        ? "One change needs reading"
+        : `${unreviewed} changes need reading`;
 
   return (
-    <div className="space-y-5">
-      <PageHeader
-        title="Regulatory monitoring"
-        description={`Policies, jurisdictions, industries and topics ${business.name} is following, and the changes detected against them.`}
-      />
+    <div className="mx-auto max-w-2xl pb-10">
+      <header className="rise pb-6">
+        <p className="text-xs text-ink-muted">Regulatory monitoring · {business.name}</p>
 
-      <InlineNote tone="warning">
-        Monitoring in this version runs against seeded, versioned change records so the full flow — detection,
-        relevance, review and action — works end to end. It is not a live real-time feed from government
-        sources.
-      </InlineNote>
+        <h1 className="mt-3 text-display font-semibold text-balance text-ink">{headline}</h1>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Items monitored" value={monitorRows.length} hint="Policies, topics and jurisdictions" />
-        <Stat
-          label="Changes needing review"
-          value={unreviewed}
-          tone={unreviewed > 0 ? "warning" : "success"}
-          hint={unreviewed > 0 ? "Review to keep your risk score accurate" : "All caught up"}
-        />
-        <Stat label="High or critical changes" value={critical} hint="Across the detected feed" />
-        <Stat label="Changes detected" value={updateRows.length} hint="Matching what you monitor" />
-      </div>
+        <p className="mt-3 max-w-2xl text-[13px] text-ink-soft">
+          <span className="tabular">{updateRows.length}</span>{" "}
+          {updateRows.length === 1 ? "change has" : "changes have"} been detected against the{" "}
+          <span className="tabular">{monitorRows.length}</span> policies, topics and jurisdictions
+          you follow.
+        </p>
+      </header>
 
       <MonitoringView
         monitors={monitorRows}
         updates={updateRows}
         highlightUpdateId={params.update ?? null}
       />
+
+      <p className="mt-14 max-w-2xl border-t border-line pt-6 text-xs leading-5 text-ink-muted">
+        Monitoring in this version runs against seeded, versioned change records so the full flow —
+        detection, relevance, review and action — works end to end. It is not a live real-time feed
+        from government sources.
+      </p>
     </div>
   );
 }

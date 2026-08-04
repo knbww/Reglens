@@ -6,32 +6,43 @@ import { SignUpForm } from "./sign-up-form";
 
 export const metadata: Metadata = { title: "Create an account" };
 
+/*
+ * The question: what does it take to start?
+ * Three fields and a survey, said plainly. One primary action — create the
+ * account. The demo is the alternative, below the rule.
+ */
 export default function SignUpPage() {
   return (
-    <div className="rounded-card border border-line bg-surface p-6 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
-      <h1 className="text-xl font-semibold tracking-tight text-ink">Create your RegLens account</h1>
-      <p className="mt-1 text-sm text-ink-muted">
-        Next you will describe your business, which takes about three minutes.
+    <div className="rise pb-6">
+      <h1 className="text-display font-semibold text-balance text-ink">Create your account</h1>
+      <p className="mt-3 text-[15px] leading-7 text-ink-soft">
+        Then you describe the business once — industry, jurisdictions, what you actually do. It
+        takes about three minutes and everything RegLens ranks for you comes from it.
       </p>
 
-      <div className="mt-6">
+      <div className="mt-8">
         <SignUpForm />
       </div>
 
-      <div className="my-6 flex items-center gap-3">
-        <span className="h-px flex-1 bg-line" />
-        <span className="text-xs text-ink-muted">or look around first</span>
-        <span className="h-px flex-1 bg-line" />
-      </div>
-
-      <DemoSignInButton />
-
-      <p className="mt-6 text-center text-sm text-ink-muted">
+      <p className="mt-5 text-[13px] text-ink-muted">
         Already have an account?{" "}
-        <Link href="/sign-in" className="font-medium text-brand hover:underline">
+        <Link
+          href="/sign-in"
+          className="text-ink-soft underline decoration-line-strong underline-offset-4 transition-colors hover:text-ink"
+        >
           Sign in
         </Link>
       </p>
+
+      <div className="mt-10 border-t border-line pt-8">
+        <p className="text-[13px] leading-6 text-ink-soft">
+          Not ready to describe your business? The demo account loads five example businesses you
+          can work through instead.
+        </p>
+        <div className="mt-4">
+          <DemoSignInButton />
+        </div>
+      </div>
     </div>
   );
 }

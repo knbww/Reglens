@@ -75,11 +75,11 @@ export function AccountMenu({
         aria-label="Account menu"
         title={expanded ? undefined : (fullName ?? email)}
         className={cn(
-          "nav-motion flex items-center rounded-lg transition-colors hover:bg-surface-muted",
+          "nav-motion flex items-center rounded-md transition-colors hover:bg-surface-muted",
           expanded ? "w-full gap-2.5 px-2 py-1.5" : "justify-center p-1",
         )}
       >
-        <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-brand-soft text-[11px] font-semibold text-brand">
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-surface-muted text-[11px] font-medium text-ink-soft">
           {initials ?? <UserIcon className="size-3.5" />}
         </span>
         <span
@@ -101,14 +101,16 @@ export function AccountMenu({
       {open ? (
         <div
           className={cn(
-            "nav-rail-out absolute z-50 w-60 rounded-lg border border-line bg-surface py-1 shadow-lg",
-            placement === "up" ? "bottom-full left-0 mb-1" : "right-0 top-full mt-1",
+            "absolute z-50 w-60 rounded-lg border border-line bg-surface py-1 shadow-[0_8px_32px_rgba(22,22,26,0.10)]",
+            placement === "up" ? "bottom-full left-0 mb-1.5" : "right-0 top-full mt-1.5",
           )}
         >
-          <div className="border-b border-line px-3 pb-2 pt-1.5">
-            <p className="truncate text-sm font-medium text-ink">{fullName ?? "RegLens user"}</p>
+          <div className="px-3 pb-2.5 pt-2">
+            <p className="truncate text-[13px] font-medium text-ink">{fullName ?? "RegLens user"}</p>
             <p className="truncate text-xs text-ink-muted">{email}</p>
-            <p className="mt-1 text-xs font-medium text-brand">{plan} plan</p>
+            <p className="mt-1 text-xs text-ink-muted">
+              {plan.charAt(0) + plan.slice(1).toLowerCase()} plan
+            </p>
           </div>
 
           {LINKS.map((link) => {
@@ -118,16 +120,16 @@ export function AccountMenu({
                 key={link.href}
                 href={link.href}
                 onClick={() => setOpen(false)}
-                className="flex items-center gap-2 px-3 py-2 text-sm text-ink-soft transition-colors hover:bg-surface-muted hover:text-ink"
+                className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-ink-soft transition-colors hover:bg-surface-muted hover:text-ink"
               >
-                <Icon className="size-4" />
+                <Icon className="size-4 text-ink-muted" />
                 {link.label}
               </Link>
             );
           })}
 
           <form
-            className="border-t border-line pt-1"
+            className="mt-1 border-t border-line pt-1"
             action={() => {
               run(async () => {
                 await signOut();
@@ -137,9 +139,9 @@ export function AccountMenu({
             <button
               type="submit"
               disabled={pending}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-ink-soft transition-colors hover:bg-surface-muted hover:text-ink disabled:opacity-60"
+              className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] text-ink-soft transition-colors hover:bg-surface-muted hover:text-ink disabled:opacity-60"
             >
-              <LogOut className="size-4" />
+              <LogOut className="size-4 text-ink-muted" />
               {pending ? "Signing out…" : "Sign out"}
             </button>
           </form>

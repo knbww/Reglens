@@ -1,13 +1,15 @@
 "use client";
 
-import { Search, X } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { X } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select } from "@/components/ui/field";
 import { JURISDICTIONS } from "@/data/jurisdictions";
+import { formatDate } from "@/lib/format";
 import { COMPLIANCE_TOPICS, COUNTRIES, INDUSTRIES } from "@/lib/taxonomy";
+import { cn } from "@/lib/utils";
 
 export type PolicyFilterValues = {
   q: string;
@@ -21,6 +23,8 @@ export type PolicyFilterValues = {
   sort: string;
 };
 
+type FilterKey = keyof PolicyFilterValues;
+
 const SORTS = [
   { value: "relevance", label: "Relevance to my business" },
   { value: "newest", label: "Most recently updated" },
@@ -28,17 +32,76 @@ const SORTS = [
   { value: "importance", label: "Importance" },
 ];
 
-const STATUSES = [
-  { value: "IN_FORCE", label: "In force" },
-  { value: "PENDING_EFFECTIVE", label: "Pending effective date" },
-  { value: "PROPOSED", label: "Proposed" },
-  { value: "AMENDED", label: "Amended" },
-  { value: "REPEALED", label: "Repealed" },
-];
+const STATUS_LABEL: Record<string, string> = {
+  IN_FORCE: "In force",
+  PENDING_EFFECTIVE: "Pending effective date",
+  PROPOSED: "Proposed",
+  AMENDED: "Amended",
+  REPEALED: "Repealed",
+};
 
-export function PolicyFilters({ initial, resultCount }: { initial: PolicyFilterValues; resultCount: number }) {
+const RELEVANCE_LABEL: Record<string, string> = {
+  high: "Only what applies to me",
+  medium: "Possibly relevant and above",
+};
+
+/** Empty string and the sentinel "all" both mean "not filtering on this". */
+function isSet(value: string): boolean {
+  return Boolean(value) && value !== "all";
+}
+
+/**
+ * The applied search, in words.
+ *
+ * Eight permanently visible selects made the page look like a database
+ * console and still failed to say what you were actually looking at. The
+ * controls now cover the three axes people reach for; everything else — a
+ * country, an industry, a status, a date, a link followed in from another
+ * screen — arrives through the URL and shows up here as a chip you can drop.
+ */
+function appliedFilters(values: PolicyFilterValues): { key: FilterKey; label: string }[] {
+  const chips: { key: FilterKey; label: string }[] = [];
+
+  if (values.q) chips.push({ key: "q", label: `“${values.q}”` });
+  if (isSet(values.country)) {
+    chips.push({
+      key: "country",
+      label: COUNTRIES.find((c) => c.code === values.country)?.name ?? values.country,
+    });
+  }
+  if (isSet(values.jurisdiction)) {
+    chips.push({
+      key: "jurisdiction",
+      label: JURISDICTIONS.find((j) => j.code === values.jurisdiction)?.name ?? values.jurisdiction,
+    });
+  }
+  if (isSet(values.industry)) {
+    chips.push({
+      key: "industry",
+      label: INDUSTRIES.find((i) => i.key === values.industry)?.label ?? values.industry,
+    });
+  }
+  if (isSet(values.topic)) {
+    chips.push({
+      key: "topic",
+      label: COMPLIANCE_TOPICS.find((t) => t.key === values.topic)?.label ?? values.topic,
+    });
+  }
+  if (isSet(values.status)) {
+    chips.push({ key: "status", label: STATUS_LABEL[values.status] ?? values.status });
+  }
+  if (values.effectiveFrom) {
+    chips.push({ key: "effectiveFrom", label: `Effective from ${formatDate(values.effectiveFrom)}` });
+  }
+  if (isSet(values.relevance)) {
+    chips.push({ key: "relevance", label: RELEVANCE_LABEL[values.relevance] ?? values.relevance });
+  }
+
+  return chips;
+}
+
+export function PolicyFilters({ initial }: { initial: PolicyFilterValues }) {
   const router = useRouter();
-  const params = useSearchParams();
   const [values, setValues] = useState<PolicyFilterValues>(initial);
 
   // The URL is the source of truth. When it changes (back button, a link from
@@ -72,109 +135,64 @@ export function PolicyFilters({ initial, resultCount }: { initial: PolicyFilterV
     window.location.assign("/policies");
   }
 
-  const jurisdictions = JURISDICTIONS.filter(
-    (j) => values.country === "all" || !values.country || j.country === values.country,
+  const countryGroups = COUNTRIES.map((country) => ({
+    code: country.code,
+    name: country.name,
+    items: JURISDICTIONS.filter((j) => j.country === country.code),
+  })).filter(
+    (group) =>
+      group.items.length > 0 &&
+      (!isSet(values.country) || group.code === values.country),
   );
 
-  const hasFilters =
-    Boolean(values.q) ||
-    [values.country, values.jurisdiction, values.industry, values.topic, values.status, values.relevance].some(
-      (v) => v && v !== "all",
-    ) ||
-    Boolean(values.effectiveFrom);
+  const chips = appliedFilters(values);
+  const onlyMine = values.relevance === "high";
 
   return (
-    <div className="space-y-3 rounded-card border border-line bg-surface p-4">
+    <div className="rise">
       <form
         onSubmit={(event) => {
           event.preventDefault();
           apply({ q: values.q });
         }}
       >
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted" />
+        <Field label="Search policies" hint="Titles, agencies, plain-language summaries and topics.">
           <Input
             value={values.q}
             onChange={(e) => setValues((v) => ({ ...v, q: e.target.value }))}
-            placeholder="Search titles, agencies, summaries and topics…"
-            className="h-10 pl-9"
-            aria-label="Search policies"
+            placeholder="Textile labelling, sales tax, work permits…"
+            className="h-10"
           />
-        </div>
+        </Field>
       </form>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Field label="Country">
-          <Select
-            value={values.country || "all"}
-            onChange={(e) => apply({ country: e.target.value, jurisdiction: "all" })}
-          >
-            <option value="all">All countries</option>
-            {COUNTRIES.map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <Field label="Jurisdiction">
-          <Select value={values.jurisdiction || "all"} onChange={(e) => apply({ jurisdiction: e.target.value })}>
-            <option value="all">All jurisdictions</option>
-            {jurisdictions.map((j) => (
-              <option key={j.code} value={j.code}>
-                {j.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-
-        <Field label="Industry">
-          <Select value={values.industry || "all"} onChange={(e) => apply({ industry: e.target.value })}>
-            <option value="all">All industries</option>
-            {INDUSTRIES.map((i) => (
-              <option key={i.key} value={i.key}>
-                {i.label}
-              </option>
+          <Select
+            value={values.jurisdiction || "all"}
+            onChange={(e) => apply({ jurisdiction: e.target.value })}
+          >
+            <option value="all">Anywhere</option>
+            {countryGroups.map((group) => (
+              <optgroup key={group.code} label={group.name}>
+                {group.items.map((j) => (
+                  <option key={j.code} value={j.code}>
+                    {j.name}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </Select>
         </Field>
 
         <Field label="Regulatory topic">
           <Select value={values.topic || "all"} onChange={(e) => apply({ topic: e.target.value })}>
-            <option value="all">All topics</option>
+            <option value="all">Every topic</option>
             {COMPLIANCE_TOPICS.map((t) => (
               <option key={t.key} value={t.key}>
                 {t.label}
               </option>
             ))}
-          </Select>
-        </Field>
-
-        <Field label="Status">
-          <Select value={values.status || "all"} onChange={(e) => apply({ status: e.target.value })}>
-            <option value="all">Any status</option>
-            {STATUSES.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </Select>
-        </Field>
-
-        <Field label="Effective on or after">
-          <Input
-            type="date"
-            value={values.effectiveFrom}
-            onChange={(e) => apply({ effectiveFrom: e.target.value })}
-          />
-        </Field>
-
-        <Field label="Relevance to my business">
-          <Select value={values.relevance || "all"} onChange={(e) => apply({ relevance: e.target.value })}>
-            <option value="all">Any relevance</option>
-            <option value="high">Highly relevant only</option>
-            <option value="medium">Possibly relevant and above</option>
           </Select>
         </Field>
 
@@ -189,14 +207,40 @@ export function PolicyFilters({ initial, resultCount }: { initial: PolicyFilterV
         </Field>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3">
-        <p className="text-xs text-ink-muted tabular">
-          {resultCount} {resultCount === 1 ? "policy" : "policies"} matched
-          {params.size > 0 ? " with the current filters" : ""}
-        </p>
-        {hasFilters ? (
-          <Button type="button" variant="ghost" size="sm" onClick={clearFilters}>
-            <X className="size-3.5" />
+      <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-2 border-t border-line pt-3">
+        <button
+          type="button"
+          aria-pressed={onlyMine}
+          onClick={() => apply({ relevance: onlyMine ? "all" : "high" })}
+          className={cn(
+            "rounded-full border px-3 py-1 text-[13px] transition-colors",
+            onlyMine
+              ? "border-brand bg-brand text-white"
+              : "border-line-strong text-ink-soft hover:bg-surface-muted hover:text-ink",
+          )}
+        >
+          Only what applies to me
+        </button>
+
+        {chips
+          .filter((chip) => chip.key !== "relevance" || !onlyMine)
+          .map((chip) => (
+            <button
+              key={chip.key}
+              type="button"
+              aria-label={`Remove filter ${chip.label}`}
+              onClick={() =>
+                apply({ [chip.key]: chip.key === "q" || chip.key === "effectiveFrom" ? "" : "all" })
+              }
+              className="inline-flex items-center gap-1.5 rounded-full border border-line-strong px-3 py-1 text-[13px] text-ink-soft transition-colors hover:bg-surface-muted hover:text-ink"
+            >
+              {chip.label}
+              <X aria-hidden className="size-3.5 text-ink-muted" />
+            </button>
+          ))}
+
+        {chips.length > 0 ? (
+          <Button type="button" variant="ghost" size="sm" className="ml-auto" onClick={clearFilters}>
             Clear filters
           </Button>
         ) : null}
