@@ -72,7 +72,6 @@ export default async function ConversationPage({
 
   return (
     <AnalystWorkspace
-      businessName={business.name}
       conversationId={conversation.id}
       policyId={policy?.id ?? null}
       policyTitle={policy?.title ?? null}

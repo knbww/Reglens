@@ -24,13 +24,11 @@ export type AnalystTurn = {
 };
 
 export function AnalystWorkspace({
-  businessName,
   conversationId,
   policyId,
   policyTitle,
   initialTurns,
 }: {
-  businessName: string;
   conversationId: string | null;
   policyId: string | null;
   policyTitle: string | null;

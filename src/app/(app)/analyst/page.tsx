@@ -12,7 +12,8 @@ export default async function AnalystPage({
   searchParams: Promise<{ policy?: string }>;
 }) {
   const params = await searchParams;
-  const { business } = await requireActiveBusiness();
+  // Still gated on a business: the layout beside this page reads its profile.
+  await requireActiveBusiness();
 
   const policy = params.policy
     ? await prisma.policy.findUnique({ where: { id: params.policy }, select: { id: true, title: true } })
@@ -20,7 +21,6 @@ export default async function AnalystPage({
 
   return (
     <AnalystWorkspace
-      businessName={business.name}
       conversationId={null}
       policyId={policy?.id ?? null}
       policyTitle={policy?.title ?? null}
