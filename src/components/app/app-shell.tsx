@@ -11,6 +11,18 @@ import { QuickSearch } from "@/components/app/quick-search";
 import { EMPTY_NAV_COUNTS, getNavCounts, getUnreadNotificationCount } from "@/lib/queries";
 import { getActiveBusiness, listBusinesses, requireUser } from "@/lib/session";
 import { SHORT_DISCLAIMER } from "@/lib/taxonomy";
+import { cn } from "@/lib/utils";
+
+/**
+ * One measure for the masthead, the sheet and the colophon.
+ *
+ * It was 72rem, which on a 1500px screen parked every page in the middle of
+ * 350px of empty leaf on each side — and the pages themselves then capped
+ * again at 42rem, so the product read as a narrow strip with a wide frame
+ * around it. The sheet now runs close to the window and the *reading column*
+ * inside it does the job the old max-width was pretending to do.
+ */
+const SHELL_WIDTH = "mx-auto w-full max-w-[86rem] px-4 sm:px-6 lg:px-8";
 
 /**
  * The masthead every signed-in page hangs from.
@@ -36,23 +48,26 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="print-hidden sticky top-0 z-30 border-b border-line bg-canvas/95 backdrop-blur">
-        <div className="mx-auto w-full max-w-6xl px-5 lg:px-8">
+        <div className={SHELL_WIDTH}>
           <div className="flex h-14 items-center gap-4">
             <Link href="/dashboard" aria-label="RegLens home" className="shrink-0">
               <Logo />
             </Link>
 
+            {/* Six destinations now sit on this line, so the switcher and the
+                search field give their width back until the window can spare
+                it rather than crowding the navigation. */}
             {businesses.length > 1 ? (
-              <div className="hidden min-w-0 max-w-[13rem] md:block">
+              <div className="hidden min-w-0 max-w-[13rem] md:block lg:hidden xl:block">
                 <BusinessSwitcher businesses={businesses} activeId={activeBusiness?.id ?? null} />
               </div>
             ) : null}
 
-            <TopNav counts={counts} className="ml-2 hidden lg:flex" />
+            <TopNav counts={counts} className="ml-1 hidden lg:flex" />
 
             <div className="ml-auto flex shrink-0 items-center gap-1">
-              <Suspense fallback={<div className="hidden h-9 w-56 sm:block" />}>
-                <QuickSearch className="hidden w-56 sm:block" />
+              <Suspense fallback={<div className="hidden h-9 w-44 sm:block xl:w-56" />}>
+                <QuickSearch className="hidden w-44 sm:block xl:w-56" />
               </Suspense>
 
               <Link
@@ -82,15 +97,13 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
       </header>
 
       <Suspense>
-        <QuickSearch className="print-hidden border-b border-line px-5 py-2 sm:hidden" />
+        <QuickSearch className="print-hidden border-b border-line px-4 py-2 sm:hidden" />
       </Suspense>
 
-      <main className="min-w-0 flex-1 px-5 pb-16 pt-8 lg:px-8">
-        <div className="mx-auto w-full max-w-6xl">{children}</div>
-      </main>
+      <main className={cn(SHELL_WIDTH, "min-w-0 flex-1 pb-16 pt-8")}>{children}</main>
 
-      <footer className="print-hidden px-5 pb-10 text-xs text-ink-muted lg:px-8">
-        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-baseline gap-x-4 gap-y-1 border-t border-line pt-5">
+      <footer className={cn(SHELL_WIDTH, "print-hidden pb-10 text-xs text-ink-muted")}>
+        <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-t border-line pt-5">
           <p className="max-w-2xl leading-5">{SHORT_DISCLAIMER}</p>
           <Link href="/legal" className="transition-colors hover:text-ink">
             Full disclaimer

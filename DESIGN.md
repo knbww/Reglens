@@ -1,113 +1,133 @@
-# RegLens — design direction
+# RegLens — THE DISPATCH
 
-Binding. Read before touching UI. If a rule here fights what you want to do,
+Binding. Chosen direction; full reasoning in `design-directions.md`, rendered
+proof in `design-directions.html`. If a rule here fights what you want to do,
 the rule wins.
 
 ## The idea
 
-**RegLens is a register, not a dashboard.**
+The user opens this weekly, usually because something worried them. The most
+settling thing you can hand an anxious person is not a control panel — it is
+**a dated letter that has already done the thinking**.
 
-Regulation lives in gazettes, statutes, filings and registers. This product
-should feel like a well-made modern reference work — authoritative,
-typographically serious, records treated as records. It should not feel like
-analytics software, and it should not feel like a startup landing page.
+So the landing surface is a *briefing*: addressed to the business, dated,
+written in sentences, with controls set inline where the sentence that
+justifies them ends. The visual language is the professional letter and the
+printed law report — one reading measure, a wide outer margin carrying record
+data, a serif drawn for continuous reading.
 
-Everything below follows from that one idea. When in doubt, ask: would a
-serious reference publication do this?
+Every AI-built app is a control panel. A written briefing is a different kind
+of object, and it cannot be mistaken for a template because templates have no
+voice.
 
-## Already decided — do not relitigate
+## Type — Literata, and nothing else
 
-- **No sidebar.** Navigation is a horizontal top bar in the masthead
-  (`components/app/nav/top-nav.tsx`). Content gets the full width.
-- **IBM Plex Sans + IBM Plex Mono.** Mono is not decoration: every value that
-  is a *record* is set in it — citations, statute numbers, jurisdiction codes,
-  dates, scores, counts. Prose is never mono.
-- **Two colours.** `seal` (deep green) for anything the system asserts or you
-  can act on: primary buttons, links, active nav. `alert` (red) means *late*
-  and nothing else, ever. Everything else is ink on paper.
-- **Radius is 4px.** Nothing in this product is pill-shaped.
+One family for the whole product. Variable, `opsz` 7–72, weights 300–700, real
+italic. Loaded via `next/font/google`.
 
-## Banned — these are why the last three attempts read as machine-made
+Chosen because TypeTogether drew it as a screen-native reading serif, and
+because it is the closest freely-licensed relative to Century — the family the
+US Supreme Court requires for booklet-format briefs under Rule 33.1(b). A
+product whose job is to be believed is set in the type its jurisdiction
+insists on.
 
-- Coloured accent bars or spines on the edge of cards
-- Gauges, dials, donuts, meters, sparklines, progress rings
-- Semantic colour ramps applied across many elements at once
-- Pills and badges stacked in rows; any `rounded-full` container
-- Staggered entrance animations; cards that lift, scale or shadow on hover
-- A bordered card containing bordered rows
-- Uppercase letter-spaced micro-labels used as hierarchy
-- Emoji, gradients, glassmorphism, icon-per-feature rows
-- Four bordered stat boxes across the top of a page
+**No monospace, anywhere.** Mono is a UI convention, not a document
+convention; a reference work does not switch to Courier to print a date. Use
+`font-variant-numeric: tabular-nums` for figures, and letter-spaced uppercase
+at 13px in `ink-3` for citations and codes.
 
-## Structure
+| Role | Size / line-height / weight |
+| --- | --- |
+| Colophon, disclaimer | 12 / 1.6 / 400 `ink-3` |
+| Marginalia | 13 / 1.55 / 400 `ink-3`; labels uppercase `+0.07em` |
+| Supporting, controls | 15 / 1.5 / 500 |
+| Body prose | 18 / 1.75 / 400 |
+| The aside voice | 18 / 1.75 / 400 *italic* `ink-2` |
+| Sub-head | 24 / 1.3 / 600 |
+| Letterhead rule line | 13 / 1 / 600 uppercase `+0.12em` |
+| Briefing head (`h1`) | 34 / 1.2 / 600 `-0.015em` |
 
-**One question per page.** Write it as a comment at the top of the page
-component. If a page answers three, it is three pages or three tabs.
+**Nothing is ever set larger than 34px.** A briefing does not shout. There is
+no hero figure — the risk score is a number inside a sentence.
 
-**Act in place.** A row that can only be clicked through to somewhere else is a
-failure. The action that disposes of a thing belongs on the thing.
+## Colour
 
-**Empty is a success state**, and gets the same care as a full screen.
+| Token | Hex | Allowed on |
+| --- | --- | --- |
+| `leaf` | `#FBFAF6` | The sheet. The only background in the product. |
+| `ink` | `#1A1A17` | Prose, headings. |
+| `ink-2` | `#55534C` | Secondary prose, the aside voice. |
+| `ink-3` | `#6F6B62` | Marginalia, colophon, dates. |
+| `rule` | `#E4E1D7` | Hairlines only. |
+| `counsel` | `#1F3A5F` | Words the reader can act on, with a 1px underline of the same colour. The one primary control per section. |
+| `late` | `#8E1B12` | The word "late", the number of days. Nothing else. |
 
-**Page anatomy** — nothing else competing:
+**The hard rule: colour never fills an area.** Not a button, not a badge, not a
+row, not a chip. Colour inks a glyph or a 1px underline, and that is all. There
+is not one filled block of colour in this product.
 
-1. Context line, small, muted
-2. `h1` stating the answer, not the feature name
-3. Optionally one supporting line
-4. Content, separated by space and hairlines
-5. Reference material last and visibly quieter, or on another page
+Budget: `late` at most twice per sheet. `counsel` only on actionable words.
 
-**The margin.** Long-form pages (policy detail, reports, analyst answers) use a
-two-column grid: a reading column of ~68ch and a narrow margin column holding
-the record data — jurisdiction, agency, citation, effective date — set in mono.
-That is how a reference work handles marginalia, and it removes the need for
-definition-list grids and tag rows.
+## Layout and navigation
 
-**Widths.** Reading: `max-w-2xl`. Lists and forms: `max-w-4xl`. Tables and
-comparison: the full `max-w-6xl`.
+- **No persistent chrome.** No sidebar, no nav bar, no tab bar. A briefing with
+  a nav bar is not a briefing.
+- **Letterhead**, two lines: `REGLENS` in letter-spaced caps on a rule, then
+  `Compliance briefing for {Business} · {weekday day month year}`.
+- **Grid.** Sheet max `1160px`: a `66ch` reading column and a `240px` right
+  margin, divided by a hairline. The margin carries agency, citation, effective
+  date, jurisdiction. **Nothing in the margin is ever essential** — below
+  900px it moves inline as a hairline-topped note and nothing is lost.
+- **Navigation is:** links inside sentences; one search field in the
+  letterhead; one `Index` link in the letterhead and colophon leading to a real
+  back-of-book index — alphabetical, two columns, every surface and saved
+  object with its count. That is the whole system.
+- **Density** is deliberately low on the briefing and higher on corpus
+  surfaces, where body drops to 16/1.6 and the margin narrows.
 
-## Type
+## Two borrowings, bounded
 
-| Class          | Use                                              |
-| -------------- | ------------------------------------------------ |
-| `text-figure`  | One hero number per page, at most                 |
-| `text-display` | `h1` — the page's answer                          |
-| `text-title`   | Section heads                                     |
-| `text-[15px]`  | Body, row titles                                  |
-| `text-[13px]`  | Supporting text                                   |
-| `text-xs`      | Context lines, captions                           |
-| `font-mono`    | Every record value. Add `tabular` in columns.     |
+- **Line weight encodes jurisdictional rank**: the hairline under a
+  jurisdiction name is 2px federal, 1.5px state/province, 1px dashed local.
+- **A headnote block on policy records only** — never on the briefing —
+  announcing `AGENCY / STATUS / EFFECTIVE / LAST UPDATED` as labelled fields
+  before the prose, as the source documents do.
 
-Weights 400 / 500 / 600 only. `leading-7` for prose.
+## Banned
 
-## Components
+Monospace. Filled colour of any kind. Cards, and boxes inside boxes. Gauges,
+dials, meters, sparklines, progress rings. Pills, badges, `rounded-full`.
+Coloured spines. Stat-box rows. Staggered entrances, hover lift or shadow.
+Uppercase micro-labels used as hierarchy. Emoji, gradients, glassmorphism.
+Anything above 34px.
 
-- **One filled button per view.** Everything else is `ghost` or an underlined
-  text link (`underline decoration-line-strong underline-offset-4`).
-- **Rows, not cards.** Hairline separators, hover ground, generous padding.
-  A border only when the thing is genuinely a separate object.
-- **Forms**: label above, hint below, full width, real validation text.
-- **Tables** for genuinely tabular data. `overflow-x-auto` on the container,
-  never on the page.
+## Writing the briefing
+
+The prose is the product; it is a design artefact, not filler. **Write the
+hard cases first** — 0 items, 1 item, 22 items, no profile, first visit, a
+database error. If the 22-item briefing cannot be written well the direction
+fails, and we need to know immediately.
+
+Hard rule: the briefing names **at most three things** and counts the rest in
+one sentence linking to the ledger. Design the count sentence, not an overflow
+list. Every briefing's final paragraph ends with a route out.
+
+## Behaviour
+
+Act in place: the control lives in the sentence that justifies it. Empty is a
+success state and gets the best sentence in the product. One primary control
+per section.
 
 ## Motion
 
-Pure CSS only. Never JavaScript-driven — a previous attempt gated animation on
-a JS media-query read that defaulted to "off" during server render, so nothing
-animated in production.
-
-- `.rise` — one 180ms fade-up per region on mount. No stagger.
-- `.dispose` — an item leaving after you acted on it. The only animation that
-  means anything. Keep it.
-- Hover changes background colour. Nothing moves.
-
-## Accessibility
-
-Colour is never the only signal. Visible focus ring on everything. Icon-only
-controls get `aria-label`. Graphical figures also state their value in text.
+Pure CSS only — never gated on a JavaScript media-query read, which returns
+"reduced" during server render and killed animation in production once already.
+One 180ms fade per sheet on mount. One dispose animation when an item leaves
+after you acted. Hover changes ground, nothing moves.
 
 ## Verification
 
 `npm run typecheck` and `npm run lint` must pass. Do **not** run `npm run
-build`, `dev` or `start` — the `.next` directory is shared and concurrent
-builds collide.
+build`, `dev` or `start` — `.next` is shared and concurrent builds collide.
+Keep `scripts/test-ui.ts` passing; where a string must change, change the
+assertion deliberately (`dashboard` leaves the product's vocabulary).

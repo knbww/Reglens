@@ -36,14 +36,10 @@ export async function setActiveBusiness(businessId: string): Promise<void> {
   revalidatePath("/", "layout");
 }
 
-/** Switches business and lands on the right page for its onboarding state. */
+/** Switches business and opens the briefing for it. */
 export async function switchBusinessAndGo(businessId: string): Promise<void> {
   await setActiveBusiness(businessId);
-  const business = await prisma.business.findUnique({
-    where: { id: businessId },
-    select: { onboardingCompleted: true },
-  });
-  redirect(business?.onboardingCompleted ? "/dashboard" : "/onboarding");
+  redirect("/dashboard");
 }
 
 export type SaveOnboardingResult = { ok: true; businessId: string } | { ok: false; error: string };

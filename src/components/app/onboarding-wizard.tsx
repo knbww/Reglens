@@ -31,13 +31,19 @@ import { useAction } from "@/lib/use-action";
  * One question per step, asked in the order a person would ask them. `title`
  * is the word used in the progress trail; `question` is what the step actually
  * wants to know and stands as the page's heading while that step is open.
+ *
+ * Only the first step is required. Everything after it sharpens the ranking,
+ * and none of it is worth holding the product hostage for: an interview that
+ * has to be completed before anything can be seen is how a new account ends up
+ * staring at a percentage instead of at its own regulations.
  */
 const STEPS = [
   {
     key: "company",
     title: "Company",
     question: "Tell us about the business",
-    blurb: "Who you are, and where you answer to a regulator. Six short questions, about three minutes.",
+    blurb:
+      "Who you are, and where you answer to a regulator. This is the only step RegLens needs — everything after it is optional and sharpens the ranking.",
   },
   {
     key: "industry",
@@ -232,12 +238,10 @@ export function OnboardingWizard({
         return "Select at least one jurisdiction where you operate.";
       if (data.website && data.website.trim() !== "" && !/^https?:\/\//i.test(data.website))
         return "The website must start with http:// or https://";
+      if (!data.disclaimerAccepted) return "Please acknowledge how RegLens information should be used.";
     }
     if (index === 3 && data.plansExpansion) {
       if (!data.targetCountry) return "Choose the country you plan to expand into.";
-    }
-    if (index === 5 && !data.disclaimerAccepted) {
-      return "Please acknowledge how RegLens information should be used.";
     }
     return null;
   }
@@ -252,11 +256,17 @@ export function OnboardingWizard({
     setStep((s) => Math.min(STEPS.length - 1, s + 1));
   }
 
+  /**
+   * Saves whatever has been answered and leaves. Reachable from every step
+   * once the first one is filled in — the remaining questions refine the
+   * ranking and can be answered later from the profile, so nothing is gained
+   * by making someone finish them before they see a single requirement.
+   */
   function submit() {
-    for (let i = 0; i < STEPS.length; i += 1) {
-      const problem = validateStep(i);
+    for (const index of [0, 3]) {
+      const problem = validateStep(index);
       if (problem) {
-        setStep(i);
+        setStep(index);
         setError(problem);
         return;
       }
@@ -276,6 +286,8 @@ export function OnboardingWizard({
   const progress = Math.round(((step + 1) / STEPS.length) * 100);
   const current = STEPS[step];
   const isLast = step === STEPS.length - 1;
+  // Everything RegLens needs to rank anything at all has been answered.
+  const essentialsDone = validateStep(0) === null;
 
   return (
     <div className="mx-auto w-full max-w-2xl pb-12">
@@ -462,6 +474,17 @@ export function OnboardingWizard({
                 onChange={(next) => set("operatingJurisdictions", next)}
               />
             </Group>
+
+            {/* The acknowledgement sits on the step you cannot skip, because
+                you can now leave for the product from any step after it. */}
+            <label className="flex cursor-pointer items-start gap-3 border-t border-line pt-6">
+              <Checkbox
+                checked={data.disclaimerAccepted}
+                onChange={(e) => set("disclaimerAccepted", e.target.checked)}
+                className="mt-0.5"
+              />
+              <span className="text-[13px] leading-6 text-ink-muted">{DISCLAIMER}</span>
+            </label>
           </div>
         ) : null}
 
@@ -869,14 +892,6 @@ export function OnboardingWizard({
               )}
             </section>
 
-            <label className="flex cursor-pointer items-start gap-3 border-t border-line pt-6">
-              <Checkbox
-                checked={data.disclaimerAccepted}
-                onChange={(e) => set("disclaimerAccepted", e.target.checked)}
-                className="mt-0.5"
-              />
-              <span className="text-[13px] leading-6 text-ink-muted">{DISCLAIMER}</span>
-            </label>
           </div>
         ) : null}
 
@@ -896,16 +911,33 @@ export function OnboardingWizard({
             Back
           </Button>
 
-          {isLast ? (
-            <Button type="button" onClick={submit} disabled={pending}>
-              {pending ? "Saving…" : isEdit ? "Save profile" : "Finish and open my dashboard"}
-            </Button>
-          ) : (
-            <Button type="button" onClick={next} disabled={pending}>
-              Continue
-            </Button>
-          )}
+          <div className="flex flex-wrap items-center gap-1">
+            {/* The way out, on every step. */}
+            {!isLast && essentialsDone ? (
+              <Button type="button" variant="ghost" onClick={submit} disabled={pending}>
+                {pending ? "Saving…" : isEdit ? "Save and close" : "Save and open RegLens"}
+              </Button>
+            ) : null}
+
+            {isLast ? (
+              <Button type="button" onClick={submit} disabled={pending}>
+                {pending ? "Saving…" : isEdit ? "Save profile" : "Finish and open my dashboard"}
+              </Button>
+            ) : (
+              <Button type="button" onClick={next} disabled={pending}>
+                Continue
+              </Button>
+            )}
+          </div>
         </div>
+
+        {!isLast && !isEdit ? (
+          <p className="mt-4 text-[13px] leading-6 text-ink-muted">
+            {essentialsDone
+              ? "That is everything RegLens needs. The remaining steps sharpen the ranking and can be answered later from your profile."
+              : "Only this first step is required. The rest can be answered later from your profile."}
+          </p>
+        ) : null}
       </div>
     </div>
   );

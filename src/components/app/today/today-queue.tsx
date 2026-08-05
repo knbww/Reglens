@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
  */
 export type QueueItem = {
   id: string;
-  kind: "task" | "change" | "deadline" | "profile";
+  kind: "task" | "change" | "deadline";
   eyebrow: string;
   title: string;
   body: string;
@@ -63,9 +63,8 @@ export function TodayQueue({
 
   if (remaining.length === 0) {
     return (
-      <div className="rise py-16">
-        <p className="text-display font-semibold text-ink">You&rsquo;re clear.</p>
-        <p className="mt-3 max-w-md text-[15px] leading-7 text-ink-soft">
+      <div className="rise py-2">
+        <p className="max-w-2xl text-[15px] leading-7 text-ink-soft">
           Nothing is overdue and nothing is waiting on a review.
           {nextClearDate ? ` The next dated obligation is ${nextClearDate}.` : ""}
         </p>
@@ -158,11 +157,6 @@ export function TodayQueue({
               </>
             ) : null}
 
-            {item.kind === "profile" ? (
-              <Link href={item.href} className={buttonVariants()}>
-                Complete the profile
-              </Link>
-            ) : null}
           </div>
         </li>
       ))}

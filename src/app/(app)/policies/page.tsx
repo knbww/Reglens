@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { PolicyFilters, type PolicyFilterValues } from "@/components/app/policy-filters";
+import { Sheet } from "@/components/app/sheet";
 import { jurisdictionName } from "@/data/jurisdictions";
 import { formatDate } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
@@ -142,17 +143,15 @@ export default async function PoliciesPage({ searchParams }: { searchParams: Sea
           : `${count} ${plural}, most relevant to you first`;
 
   return (
-    <div className="mx-auto max-w-4xl pb-10">
+    <Sheet margin={<PolicyFilters initial={filters} />}>
       <header className="rise pb-7">
         <p className="text-xs text-ink-muted">Policy search · {business.name}</p>
-        <h1 className="mt-3 text-display font-semibold text-balance text-ink">{headline}</h1>
+        <h1 className="mt-3 max-w-3xl text-display font-semibold text-balance text-ink">{headline}</h1>
         <p className="mt-3 max-w-2xl text-[13px] leading-6 text-ink-soft">
           Federal, state, provincial and local requirements across North America, each ranked against
           what {business.name} does and where it does it.
         </p>
       </header>
-
-      <PolicyFilters initial={filters} />
 
       {error ? (
         <section className="mt-8">
@@ -226,12 +225,12 @@ export default async function PoliciesPage({ searchParams }: { searchParams: Sea
             ))}
           </ul>
 
-          <p className="mt-10 border-t border-line pt-6 text-xs leading-5 text-ink-muted">
+          <p className="mt-10 max-w-3xl border-t border-line pt-6 text-xs leading-5 text-ink-muted">
             Each record is an illustrative summary of a real framework, not a live feed from the
             agency. Open a policy to see its source and the requirements it sets out.
           </p>
         </>
       )}
-    </div>
+    </Sheet>
   );
 }

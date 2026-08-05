@@ -98,7 +98,7 @@ export default async function PlannerPage({
   if (completed.length > 0) summary.push(`${completed.length} done`);
 
   return (
-    <div className="mx-auto max-w-4xl pb-10">
+    <div className="pb-10">
       <header className="rise pb-6">
         <p className="text-xs text-ink-muted">Action planner · {business.name}</p>
 

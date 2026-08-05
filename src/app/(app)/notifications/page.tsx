@@ -41,7 +41,7 @@ export default async function NotificationsPage() {
           : `${unread} notifications you have not read`;
 
   return (
-    <div className="mx-auto max-w-2xl pb-10">
+    <div className="pb-10">
       <header className="rise pb-6">
         <p className="text-xs text-ink-muted">{business.name}</p>
         <h1 className="mt-3 text-display font-semibold text-balance text-ink">{headline}</h1>

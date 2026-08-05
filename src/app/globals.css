@@ -7,86 +7,95 @@
  */
 @theme {
   /*
-   * RegLens is a register, not a dashboard.
+   * THE DISPATCH — see DESIGN.md.
    *
-   * Ink on paper, with a single hue carrying authority. Two colours in the
-   * whole product: seal green for anything the system asserts or you can act
-   * on, and one red that only ever means late. Everything else is neutral, so
-   * the two that remain are unmissable.
+   * The product is a dated letter, not a control panel. Ink on a laid sheet,
+   * with two colours that only ever ink a glyph or a 1px underline. Colour
+   * never fills an area anywhere in this product.
    */
+  --color-leaf: #fbfaf6;
+  --color-ink: #1a1a17;
+  --color-ink-2: #55534c;
+  --color-ink-3: #6f6b62;
+  --color-rule: #e4e1d7;
 
-  /* Paper is very slightly cool and never pure white, so white surfaces can
-     sit on it and read as sheets rather than as holes. */
-  --color-canvas: #f4f5f3;
-  --color-surface: #ffffff;
-  --color-surface-muted: #ebedea;
-  --color-line: #dcdfda;
-  --color-line-strong: #bcc0b9;
+  /* Words the reader can act on, and the one primary control per section. */
+  --color-counsel: #1f3a5f;
+  /* The word "late" and the number of days. Nothing else, ever. */
+  --color-late: #8e1b12;
 
-  /* Ink, cool and dense. Not switched-off pixels. */
-  --color-ink: #14171a;
-  --color-ink-soft: #4c5459;
-  --color-ink-muted: #7e878b;
-
-  /*
-   * Seal green. Customs stamps, treasury seals, filing endorsements — the
-   * colour of officialdom, and conspicuously not the blue every SaaS reaches
-   * for. Primary actions, active navigation, links.
-   */
-  --color-seal: #1d4634;
-  --color-seal-hover: #143025;
-  --color-seal-soft: #e4ebe6;
-  --color-seal-line: #a9bdb1;
-
-  /* The only other colour. It means late, and nothing else, ever. */
-  --color-alert: #a02015;
-  --color-alert-soft: #f7e6e3;
-
-  /* Kept so legacy call sites compile while screens are reworked. Do not use
-     these in new work — they resolve to the two colours above or to ink. */
-  --color-brand: var(--color-seal);
-  --color-brand-hover: var(--color-seal-hover);
-  --color-brand-soft: var(--color-seal-soft);
-  --color-brand-ring: var(--color-seal-line);
-  --color-danger: var(--color-alert);
-  --color-danger-soft: var(--color-alert-soft);
-  --color-critical: var(--color-alert);
-  --color-critical-soft: var(--color-alert-soft);
-  --color-success: var(--color-seal);
-  --color-success-soft: var(--color-seal-soft);
-  --color-warning: var(--color-ink-soft);
+  /* Legacy names, so unconverted call sites still compile during the rework.
+     Every one resolves to ink, rule, counsel or late — there is no third
+     colour hiding behind an alias. Do not use these in new work. */
+  --color-canvas: var(--color-leaf);
+  --color-surface: var(--color-leaf);
+  --color-surface-muted: #f2f0e9;
+  --color-line: var(--color-rule);
+  --color-line-strong: #cfcbbe;
+  --color-ink-soft: var(--color-ink-2);
+  --color-ink-muted: var(--color-ink-3);
+  --color-brand: var(--color-counsel);
+  --color-brand-hover: #16293f;
+  --color-brand-soft: #eceff3;
+  --color-brand-ring: #a9b5c4;
+  --color-seal: var(--color-counsel);
+  --color-seal-hover: #16293f;
+  --color-seal-soft: #eceff3;
+  --color-seal-line: #a9b5c4;
+  --color-alert: var(--color-late);
+  --color-alert-soft: #f5e7e5;
+  --color-danger: var(--color-late);
+  --color-danger-soft: #f5e7e5;
+  --color-critical: var(--color-late);
+  --color-critical-soft: #f5e7e5;
+  --color-success: var(--color-ink-2);
+  --color-success-soft: var(--color-surface-muted);
+  --color-warning: var(--color-ink-2);
   --color-warning-soft: var(--color-surface-muted);
-  --color-info: var(--color-ink-soft);
+  --color-info: var(--color-ink-2);
   --color-info-soft: var(--color-surface-muted);
-  --color-sev-clear: var(--color-ink-muted);
-  --color-sev-watch: var(--color-ink-soft);
+  --color-sev-clear: var(--color-ink-3);
+  --color-sev-watch: var(--color-ink-2);
   --color-sev-act: var(--color-ink);
-  --color-sev-over: var(--color-alert);
+  --color-sev-over: var(--color-late);
   --color-sev-clear-soft: var(--color-surface-muted);
   --color-sev-watch-soft: var(--color-surface-muted);
   --color-sev-act-soft: var(--color-surface-muted);
-  --color-sev-over-soft: var(--color-alert-soft);
+  --color-sev-over-soft: #f5e7e5;
 
-  --radius-card: 0.25rem;
+  --radius-card: 0px;
 
   /*
-   * A register's scale: one large size for the page's answer, one for section
-   * heads, and a long readable middle. Nothing enormous — authority comes from
-   * spacing and restraint, not from 60px numerals.
+   * Nothing is ever set larger than 34px. A briefing does not shout, and the
+   * hero figure is refused outright — the risk score is a number in a sentence.
    */
-  --text-figure: 2.75rem;
-  --text-figure--line-height: 1;
-  --text-figure--letter-spacing: -0.03em;
-  --text-display: 1.75rem;
-  --text-display--line-height: 1.2;
-  --text-display--letter-spacing: -0.02em;
-  --text-title: 1.125rem;
-  --text-title--line-height: 1.35;
-  --text-title--letter-spacing: -0.011em;
+  --text-brief: 2.125rem;
+  --text-brief--line-height: 1.2;
+  --text-brief--letter-spacing: -0.015em;
+  --text-subhead: 1.5rem;
+  --text-subhead--line-height: 1.3;
+  --text-prose: 1.125rem;
+  --text-prose--line-height: 1.75;
+  --text-support: 0.9375rem;
+  --text-support--line-height: 1.5;
+  --text-margin: 0.8125rem;
+  --text-margin--line-height: 1.55;
+  --text-colophon: 0.75rem;
+  --text-colophon--line-height: 1.6;
 
-  --font-sans: var(--font-sans-face), ui-sans-serif, system-ui, sans-serif;
-  --font-display: var(--font-sans-face), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-mono-face), ui-monospace, "SFMono-Regular", monospace;
+  /* Legacy scale aliases, capped at the 34px ceiling. */
+  --text-figure: 2.125rem;
+  --text-figure--line-height: 1.2;
+  --text-display: 2.125rem;
+  --text-display--line-height: 1.2;
+  --text-display--letter-spacing: -0.015em;
+  --text-title: 1.5rem;
+  --text-title--line-height: 1.3;
+
+  --font-serif: var(--font-serif-face), ui-serif, Georgia, serif;
+  --font-sans: var(--font-serif-face), ui-serif, Georgia, serif;
+  --font-display: var(--font-serif-face), ui-serif, Georgia, serif;
+  --font-mono: var(--font-serif-face), ui-serif, Georgia, serif;
 }
 
 :root {
@@ -112,10 +121,47 @@ html {
 }
 
 body {
-  background-color: var(--color-canvas);
+  background-color: var(--color-leaf);
   color: var(--color-ink);
-  font-family: var(--font-sans);
+  font-family: var(--font-serif);
+  font-optical-sizing: auto;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Figures line up in columns without switching family. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Citations, statute numbers and jurisdiction codes. A reference work sets
+ * these in letter-spaced caps, not in Courier.
+ */
+.cite {
+  font-size: 0.8125rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-ink-3);
+}
+
+/* Words the reader can act on, inside prose. Never a filled button. */
+.counsel-link {
+  color: var(--color-counsel);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--color-counsel);
+}
+
+/* Line weight encodes jurisdictional rank — no colour spent. */
+.rank-federal {
+  border-bottom: 2px solid var(--color-rule);
+}
+.rank-state {
+  border-bottom: 1.5px solid var(--color-rule);
+}
+.rank-local {
+  border-bottom: 1px dashed var(--color-rule);
 }
 
 /* Consistent focus treatment across every interactive element. */

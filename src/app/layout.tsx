@@ -1,28 +1,25 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
+import { Literata } from "next/font/google";
 import "./globals.css";
 
 /*
- * Plex, both cuts. The sans is institutional rather than neutral — flat
- * terminals, a squared bowl, real character at reading sizes — which suits a
- * product about official records better than another geometric grotesque.
+ * Literata, and nothing else, across the entire product.
  *
- * The mono is not decoration. Every value that is a *record* is set in it:
- * citations, statute numbers, jurisdiction codes, dates, scores. That is what
- * gives the interface texture, and it is true — those things are identifiers,
- * not prose.
+ * A screen-native reading serif with an optical-size axis that thickens it at
+ * small sizes — and the closest freely-licensed relative to Century, the family
+ * the US Supreme Court requires for booklet-format briefs under Rule 33.1(b).
+ * A product whose whole job is to be believed is set in the type its own
+ * jurisdiction insists on.
+ *
+ * No second family and no monospace: switching to Courier to print a date is a
+ * UI convention, not a document one. Tabular figures and letter-spaced caps do
+ * that work here.
  */
-const sans = IBM_Plex_Sans({
-  variable: "--font-sans-face",
+const literata = Literata({
+  variable: "--font-serif-face",
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  display: "swap",
-});
-
-const mono = IBM_Plex_Mono({
-  variable: "--font-mono-face",
-  subsets: ["latin"],
-  weight: ["400", "500"],
+  axes: ["opsz"],
+  style: ["normal", "italic"],
   display: "swap",
 });
 
@@ -37,7 +34,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${sans.variable} ${mono.variable} h-full antialiased`}>
+    <html lang="en" className={`${literata.variable} h-full antialiased`}>
       <body className="min-h-full">{children}</body>
     </html>
   );

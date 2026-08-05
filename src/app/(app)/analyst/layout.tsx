@@ -1,12 +1,17 @@
 import Link from "next/link";
 
 import { ConversationList } from "@/components/app/analyst/conversation-list";
-import { Badge } from "@/components/ui/badge";
-import { PageHeader } from "@/components/ui/misc";
+import { MarginNote, Sheet } from "@/components/app/sheet";
 import { groqModel, isAiConfigured } from "@/lib/ai/provider";
 import { prisma } from "@/lib/prisma";
 import { requireActiveBusiness } from "@/lib/session";
 
+/*
+ * The Analyst reads as part of the product again: one masthead, one heading,
+ * hairlines, and the earlier analyses in the margin. It had been left behind
+ * on the old card-and-badge language, which is a large part of why it looked
+ * like a different application bolted on the side.
+ */
 export default async function AnalystLayout({ children }: { children: React.ReactNode }) {
   const { business } = await requireActiveBusiness();
 
@@ -20,46 +25,50 @@ export default async function AnalystLayout({ children }: { children: React.Reac
   const configured = isAiConfigured();
 
   return (
-    <div className="space-y-5">
-      <PageHeader
-        title="AI Policy Analyst"
-        description={`Grounded in ${business.name}'s profile, jurisdictions and the RegLens policy dataset.`}
-        actions={
-          configured ? (
-            <Badge tone="brand">Groq · {groqModel()}</Badge>
-          ) : (
-            <Badge tone="neutral" title="Set GROQ_API_KEY to use a live model.">
-              Demo analyst — no API key configured
-            </Badge>
-          )
-        }
-      />
+    <Sheet
+      columnClassName="max-w-3xl"
+      margin={
+        <div className="space-y-5">
+          <MarginNote title="Earlier analyses">
+            <ConversationList
+              conversations={conversations.map((c) => ({
+                id: c.id,
+                title: c.title,
+                updatedAt: c.updatedAt.toISOString(),
+                messageCount: c._count.messages,
+              }))}
+            />
+          </MarginNote>
 
-      {!configured ? (
-        <p className="rounded-lg border border-info/20 bg-info-soft px-3 py-2 text-xs leading-5 text-info">
-          No AI provider key is set, so answers are assembled deterministically from your business profile and
-          the retrieved policy records. Every screen and action below still works. Add{" "}
-          <code className="font-mono">GROQ_API_KEY</code> to <code className="font-mono">.env.local</code> and
-          restart the server to switch to a live model — environment variables are read at startup.{" "}
-          <Link href="/settings" className="underline underline-offset-2">
-            See settings
-          </Link>
+          <MarginNote title="Model">
+            {configured ? (
+              <p className="text-[13px] leading-6 text-ink-soft">Groq · {groqModel()}</p>
+            ) : (
+              <p className="text-[13px] leading-6 text-ink-soft">
+                No provider key is set, so answers are assembled from your profile and the retrieved
+                records rather than from a model. Everything below still works —{" "}
+                <Link href="/settings" className="counsel-link">
+                  see settings
+                </Link>
+                .
+              </p>
+            )}
+          </MarginNote>
+        </div>
+      }
+    >
+      <header className="rise pb-7">
+        <p className="text-xs text-ink-muted">AI Analyst · {business.name}</p>
+        <h1 className="mt-3 text-display font-semibold text-balance text-ink">
+          Ask about anything regulatory
+        </h1>
+        <p className="mt-3 max-w-2xl text-[15px] leading-7 text-ink-soft">
+          Grounded in {business.name}&rsquo;s profile, its jurisdictions and the RegLens policy
+          records. Every answer lists what it read, and turns into tasks in one click.
         </p>
-      ) : null}
+      </header>
 
-      <div className="grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
-        <aside className="lg:sticky lg:top-20 lg:self-start">
-          <ConversationList
-            conversations={conversations.map((c) => ({
-              id: c.id,
-              title: c.title,
-              updatedAt: c.updatedAt.toISOString(),
-              messageCount: c._count.messages,
-            }))}
-          />
-        </aside>
-        <div className="min-w-0">{children}</div>
-      </div>
-    </div>
+      {children}
+    </Sheet>
   );
 }

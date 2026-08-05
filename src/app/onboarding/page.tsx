@@ -82,6 +82,14 @@ export default async function OnboardingPage({
   const editing = Boolean(business && (isEdit || business.onboardingCompleted));
 
   /*
+   * "Skip for now" used to be offered to people who had nothing to skip to:
+   * it went to the dashboard, which sent them straight back here, and the
+   * only way out of the loop was to answer six screens. The way out is only
+   * shown when there is already a business behind it.
+   */
+  const canLeave = (await prisma.business.count({ where: { ownerId: user.id } })) > 0;
+
+  /*
    * The wizard owns the heading: on an interview the question is the page.
    * This shell keeps only the way out and, when you are amending an existing
    * business, the name of the thing you are amending.
@@ -93,12 +101,14 @@ export default async function OnboardingPage({
           <Link href="/dashboard">
             <Logo />
           </Link>
-          <Link
-            href="/dashboard"
-            className="text-[13px] text-ink-muted underline decoration-line-strong underline-offset-4 hover:text-ink"
-          >
-            {editing ? "Back to RegLens" : "Skip for now"}
-          </Link>
+          {canLeave ? (
+            <Link
+              href="/dashboard"
+              className="text-[13px] text-ink-muted underline decoration-line-strong underline-offset-4 hover:text-ink"
+            >
+              {editing ? "Back to RegLens" : "Leave this for later"}
+            </Link>
+          ) : null}
         </div>
       </header>
 

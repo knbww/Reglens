@@ -38,7 +38,7 @@ export function TopNav({ counts, className }: { counts: NavCounts; className?: s
             prefetch={false}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "relative whitespace-nowrap px-3 py-2 text-[14px] transition-colors",
+              "relative whitespace-nowrap px-2.5 py-2 text-[14px] transition-colors xl:px-3",
               active ? "font-medium text-ink" : "text-ink-soft hover:text-ink",
             )}
           >

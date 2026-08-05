@@ -148,25 +148,30 @@ export function PolicyFilters({ initial }: { initial: PolicyFilterValues }) {
   const chips = appliedFilters(values);
   const onlyMine = values.relevance === "high";
 
+  /*
+   * The search sits in the margin, stacked, so the records themselves get the
+   * width. Eight controls across the top of a narrow column was the shape that
+   * made this page read as a database console.
+   */
   return (
-    <div className="rise">
+    <div className="rise space-y-4">
       <form
         onSubmit={(event) => {
           event.preventDefault();
           apply({ q: values.q });
         }}
       >
-        <Field label="Search policies" hint="Titles, agencies, plain-language summaries and topics.">
+        <Field label="Search policies" hint="Titles, agencies, summaries and topics.">
           <Input
             value={values.q}
             onChange={(e) => setValues((v) => ({ ...v, q: e.target.value }))}
-            placeholder="Textile labelling, sales tax, work permits…"
+            placeholder="Textile labelling, sales tax…"
             className="h-10"
           />
         </Field>
       </form>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3">
         <Field label="Jurisdiction">
           <Select
             value={values.jurisdiction || "all"}
@@ -207,16 +212,18 @@ export function PolicyFilters({ initial }: { initial: PolicyFilterValues }) {
         </Field>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-2 border-t border-line pt-3">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-2 border-t border-line pt-3">
+        {/* Colour never fills an area here: a live filter is stated in ink,
+            underlined, and everything off it is quiet. */}
         <button
           type="button"
           aria-pressed={onlyMine}
           onClick={() => apply({ relevance: onlyMine ? "all" : "high" })}
           className={cn(
-            "rounded-full border px-3 py-1 text-[13px] transition-colors",
+            "rounded-md px-2 py-1 text-[13px] transition-colors",
             onlyMine
-              ? "border-brand bg-brand text-white"
-              : "border-line-strong text-ink-soft hover:bg-surface-muted hover:text-ink",
+              ? "font-medium text-ink underline decoration-ink decoration-1 underline-offset-4"
+              : "text-ink-soft hover:bg-surface-muted hover:text-ink",
           )}
         >
           Only what applies to me
@@ -232,7 +239,7 @@ export function PolicyFilters({ initial }: { initial: PolicyFilterValues }) {
               onClick={() =>
                 apply({ [chip.key]: chip.key === "q" || chip.key === "effectiveFrom" ? "" : "all" })
               }
-              className="inline-flex items-center gap-1.5 rounded-full border border-line-strong px-3 py-1 text-[13px] text-ink-soft transition-colors hover:bg-surface-muted hover:text-ink"
+              className="inline-flex items-center gap-1.5 rounded-md border border-line-strong px-2 py-1 text-[13px] text-ink-soft transition-colors hover:bg-surface-muted hover:text-ink"
             >
               {chip.label}
               <X aria-hidden className="size-3.5 text-ink-muted" />

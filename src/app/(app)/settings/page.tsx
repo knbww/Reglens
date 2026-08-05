@@ -67,7 +67,7 @@ export default async function SettingsPage() {
   const aiConfigured = isAiConfigured();
 
   return (
-    <div className="mx-auto max-w-4xl pb-10">
+    <div className="pb-10">
       <header className="rise">
         <p className="text-xs text-ink-muted">{user.email}</p>
         <h1 className="mt-3 text-display font-semibold text-balance text-ink">
@@ -152,9 +152,9 @@ export default async function SettingsPage() {
                     {!business.onboardingCompleted ? (
                       <Link
                         href={`/onboarding?business=${business.id}`}
-                        className="ml-2 text-[13px] font-medium text-alert underline decoration-line-strong underline-offset-4"
+                        className="ml-2 text-[13px] text-ink-muted underline decoration-line-strong underline-offset-4 hover:text-ink"
                       >
-                        Onboarding incomplete
+                        Set-up unfinished
                       </Link>
                     ) : null}
                   </td>

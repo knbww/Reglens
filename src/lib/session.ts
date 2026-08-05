@@ -69,13 +69,18 @@ export const getActiveBusiness = cache(async (userId: string): Promise<BusinessW
 });
 
 /**
- * For pages that cannot render without a business. Sends the user to
- * onboarding when they have none, or when onboarding was never finished.
+ * For pages that cannot render without a business.
+ *
+ * It only sends you away when there is genuinely nothing to render against —
+ * no business at all. An *unfinished* business used to bounce every page back
+ * to the wizard, which meant a new account could answer six screens of
+ * questions, land on the dashboard, and be told to go back and finish. A
+ * half-answered profile ranks slightly less well; it does not stop the product
+ * working, and the places it would help are marked in the margin instead.
  */
 export async function requireActiveBusiness(): Promise<{ user: User; business: BusinessWithContext }> {
   const user = await requireUser();
   const business = await getActiveBusiness(user.id);
   if (!business) redirect("/onboarding");
-  if (!business.onboardingCompleted) redirect(`/onboarding?business=${business.id}`);
   return { user, business };
 }

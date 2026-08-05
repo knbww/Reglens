@@ -60,7 +60,7 @@ export default async function RemindersPage() {
           : "No dates on your calendar";
 
   return (
-    <div className="mx-auto max-w-4xl pb-10">
+    <div className="pb-10">
       <header className="rise pb-6">
         <p className="text-xs text-ink-muted">Deadlines &amp; reminders · {business.name}</p>
 

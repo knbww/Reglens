@@ -139,7 +139,7 @@ export default async function ProfilePage({
   const doesNot = activities.filter(([, on]) => !on).map(([label]) => label);
 
   return (
-    <div className="mx-auto max-w-4xl pb-10">
+    <div className="pb-10">
       <header className="rise">
         <p className="text-xs text-ink-muted">Business profile</p>
         <h1 className="mt-3 text-display font-semibold text-balance text-ink">{business.name}</h1>

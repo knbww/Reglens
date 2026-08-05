@@ -31,9 +31,14 @@ export type NavItem = {
 };
 
 /**
- * Five primary destinations, no group headers. The old four headers labelled
+ * Six primary destinations, no group headers. The old four headers labelled
  * groups of 1/3/4/4 and cost roughly a quarter of the sidebar's height to say
  * things the grouping already said.
+ *
+ * The Analyst is one of the six rather than a child of Research. It was the
+ * single most-used surface in the product and filing it under a section that
+ * opens on Policy search meant it simply disappeared: nothing anywhere on
+ * screen said the product could be *asked* anything.
  */
 export const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Today", short: "Today", icon: Sun, queue: "today" },
@@ -52,14 +57,14 @@ export const NAV_ITEMS: NavItem[] = [
   {
     href: "/policies",
     label: "Research",
-    short: "Research",
+    short: "Search",
     icon: Search,
     children: [
       { href: "/policies", label: "Policy search", icon: Search },
-      { href: "/analyst", label: "AI Policy Analyst", icon: Sparkles },
       { href: "/compare", label: "Compare jurisdictions", icon: SplitSquareHorizontal },
     ],
   },
+  { href: "/analyst", label: "AI Analyst", short: "Ask AI", icon: Sparkles },
   { href: "/reports", label: "Reports", short: "Reports", icon: FileText },
 ];
 

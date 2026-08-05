@@ -4,6 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { PolicyActions } from "@/components/app/policy-actions";
+import { MarginNote, Sheet } from "@/components/app/sheet";
 import { UPDATE_TYPE_LABEL } from "@/components/ui/status";
 import { jurisdictionName } from "@/data/jurisdictions";
 import type { PolicyDeadline, PolicyRequirement } from "@/data/policies";
@@ -82,7 +83,49 @@ export default async function PolicyDetailPage({ params }: { params: Promise<{ i
   const deadlines = (policy.deadlines as unknown as PolicyDeadline[]) ?? [];
 
   return (
-    <div className="mx-auto max-w-2xl pb-12">
+    <Sheet
+      columnClassName="max-w-2xl"
+      margin={
+        <div className="space-y-5">
+          {/* The headnote a law report prints before the prose: what this is,
+              who issued it, and the dates. In the margin it stays available
+              while you read instead of pushing the summary down the page. */}
+          <MarginNote title="Record">
+            <dl className="space-y-2 text-[13px] leading-6">
+              <div>
+                <dt className="text-ink-muted">Agency</dt>
+                <dd className="text-ink">{policy.agency}</dd>
+              </div>
+              <div>
+                <dt className="text-ink-muted">Jurisdiction</dt>
+                <dd className="text-ink">
+                  {jurisdictionName(policy.jurisdictionCode)} · {countryName(policy.country)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-ink-muted">Status</dt>
+                <dd className="text-ink">{STATUS_TEXT[policy.status]}</dd>
+              </div>
+              <div>
+                <dt className="text-ink-muted">Effective</dt>
+                <dd className="tabular text-ink">{formatDate(policy.effectiveAt)}</dd>
+              </div>
+              <div>
+                <dt className="text-ink-muted">Last updated</dt>
+                <dd className="tabular text-ink">{formatDate(policy.lastUpdatedAt)}</dd>
+              </div>
+            </dl>
+          </MarginNote>
+
+          <MarginNote title={`Ranked for ${business.name}`}>
+            <p className="text-[13px] leading-6 text-ink-soft">
+              {relevanceLabel(relevance.band)} — scored{" "}
+              <span className="tabular font-medium text-ink">{relevance.score}</span> out of 100.
+            </p>
+          </MarginNote>
+        </div>
+      }
+    >
       <Link
         href="/policies"
         className="text-[13px] text-ink-muted transition-colors hover:text-ink"
@@ -95,7 +138,9 @@ export default async function PolicyDetailPage({ params }: { params: Promise<{ i
           {jurisdictionName(policy.jurisdictionCode)} · {policy.agency} · {countryName(policy.country)}
         </p>
 
-        <h1 className="mt-3 text-display font-semibold text-balance text-ink">{policy.title}</h1>
+        <h1 className="mt-3 max-w-3xl text-display font-semibold text-balance text-ink">
+          {policy.title}
+        </h1>
 
         <p className="mt-3 text-[13px] text-ink-muted">
           {STATUS_TEXT[policy.status]} · Effective{" "}
@@ -107,7 +152,7 @@ export default async function PolicyDetailPage({ params }: { params: Promise<{ i
 
       {/* The plain-language summary is the reason this page exists, so it gets
           the lead position and reading-length measure rather than a card. */}
-      <div className="rise mt-7">
+      <div className="rise mt-7 max-w-2xl">
         <p className="text-[15px] leading-7 text-ink">{policy.plainSummary}</p>
         {policy.fullSummary ? (
           <p className="mt-4 text-[15px] leading-7 text-ink-soft">{policy.fullSummary}</p>
@@ -369,6 +414,6 @@ export default async function PolicyDetailPage({ params }: { params: Promise<{ i
           More from {jurisdictionName(policy.jurisdictionCode)}
         </Link>
       </section>
-    </div>
+    </Sheet>
   );
 }
