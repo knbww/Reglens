@@ -6,8 +6,7 @@ import { z } from "zod";
 
 import { createClient } from "@supabase/supabase-js";
 
-import { prisma } from "@/lib/prisma";
-import { ACTIVE_BUSINESS_COOKIE } from "@/lib/session";
+import { ACTIVE_BUSINESS_COOKIE, syncAppUser } from "@/lib/session";
 import { supabaseSecretKey, supabaseUrl } from "@/lib/supabase/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { cookies, headers } from "next/headers";
@@ -111,11 +110,7 @@ export async function signUp(_prev: AuthState, formData: FormData): Promise<Auth
     if (error) return { error: signUpError(error.message) };
 
     if (data.user) {
-      await prisma.user.upsert({
-        where: { id: data.user.id },
-        create: { id: data.user.id, email, fullName },
-        update: { fullName },
-      });
+      await syncAppUser(data.user.id, email, fullName);
     }
 
     const { error: sessionError } = await supabase.auth.signInWithPassword({ email, password });
@@ -137,11 +132,7 @@ export async function signUp(_prev: AuthState, formData: FormData): Promise<Auth
   if (!data.session) return { pending: email };
 
   if (data.user) {
-    await prisma.user.upsert({
-      where: { id: data.user.id },
-      create: { id: data.user.id, email, fullName },
-      update: { fullName },
-    });
+    await syncAppUser(data.user.id, email, fullName);
   }
 
   revalidatePath("/", "layout");

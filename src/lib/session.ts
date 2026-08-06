@@ -10,6 +10,51 @@ import { createSupabaseServerClient } from "./supabase/server";
 export const ACTIVE_BUSINESS_COOKIE = "reglens.business";
 
 /**
+ * Postgres said the address is taken.
+ *
+ * Prisma names the offending column in `meta.target` on some paths and not at
+ * all through a driver adapter, where the cause arrives as an opaque
+ * `UniqueConstraintViolation` — so the code alone has to be enough. It is:
+ * `User` has exactly two unique columns, the write below keys on the other
+ * one, and a conflict on the primary key is not reachable from an upsert.
+ */
+function isDuplicateEmail(cause: unknown): boolean {
+  return (cause as { code?: string })?.code === "P2002";
+}
+
+/**
+ * The application's row for a Supabase account, created on first sign-in.
+ *
+ * The upsert keys on the auth id, so an address that already belongs to a row
+ * created under a *different* id — the account was deleted in Supabase and
+ * made again, which issues a new uuid — used to fail the unique index on
+ * email and take the whole page down with a 500 on every request after
+ * signing in. Signing in is proof enough of owning the address, so the
+ * existing row moves to the new id instead; every foreign key to User is
+ * ON UPDATE CASCADE, so the businesses, conversations and reports attached to
+ * it come along rather than being orphaned.
+ */
+export async function syncAppUser(
+  id: string,
+  email: string,
+  fullName: string | null,
+): Promise<User> {
+  try {
+    return await prisma.user.upsert({
+      where: { id },
+      create: { id, email, fullName },
+      update: { email },
+    });
+  } catch (cause) {
+    if (!isDuplicateEmail(cause)) throw cause;
+    return prisma.user.update({
+      where: { email },
+      data: { id, ...(fullName ? { fullName } : {}) },
+    });
+  }
+}
+
+/**
  * Returns the signed-in application user, creating the mirror row on first
  * sign-in. `null` when there is no session.
  */
@@ -20,15 +65,11 @@ export const getCurrentUser = cache(async (): Promise<User | null> => {
   } = await supabase.auth.getUser();
   if (!user?.email) return null;
 
-  return prisma.user.upsert({
-    where: { id: user.id },
-    create: {
-      id: user.id,
-      email: user.email,
-      fullName: (user.user_metadata?.full_name as string | undefined) ?? null,
-    },
-    update: { email: user.email },
-  });
+  return syncAppUser(
+    user.id,
+    user.email,
+    (user.user_metadata?.full_name as string | undefined) ?? null,
+  );
 });
 
 export async function requireUser(): Promise<User> {
