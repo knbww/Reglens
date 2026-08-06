@@ -48,6 +48,9 @@ export async function startCheckout(): Promise<CheckoutResult> {
     const site = await origin();
     const session = await stripe().checkout.sessions.create({
       mode: "subscription",
+      // No `payment_method_types`: leaving it off is what lets Stripe offer
+      // each customer the methods their country and the dashboard allow.
+      integration_identifier: "reglens-subscription-qwmtzkbr",
       line_items: [{ price: await proPriceId(), quantity: 1 }],
       customer: await customerId(user.id, user.email, user.fullName),
       client_reference_id: user.id,
