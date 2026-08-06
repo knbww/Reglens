@@ -4,8 +4,11 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
+import { createClient } from "@supabase/supabase-js";
+
 import { prisma } from "@/lib/prisma";
 import { ACTIVE_BUSINESS_COOKIE } from "@/lib/session";
+import { supabaseSecretKey, supabaseUrl } from "@/lib/supabase/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { cookies } from "next/headers";
 
@@ -38,6 +41,32 @@ export async function signIn(_prev: AuthState, formData: FormData): Promise<Auth
   redirect(next.startsWith("/") ? next : "/dashboard");
 }
 
+/** Supabase phrasing, turned into something the person can act on. */
+function signUpError(message: string): string {
+  const text = message.toLowerCase();
+  if (text.includes("rate limit") || text.includes("email send")) {
+    return "Too many confirmation emails have gone out from this project in the last hour. Supabase's built-in mail service allows only a handful — turn off “Confirm email” in Authentication → Sign In / Providers → Email, or connect your own SMTP, and try again.";
+  }
+  if (text.includes("already registered") || text.includes("already been registered") || text.includes("already exists")) {
+    return "That email already has an account. Sign in instead.";
+  }
+  return message;
+}
+
+/**
+ * Creates the account and signs straight in.
+ *
+ * When a server key is configured the account is created through the admin
+ * API, already confirmed, and the password is used to open a session at once.
+ * That is deliberate: Supabase's built-in mail service allows only a couple of
+ * messages an hour, so a confirmation round-trip meant that signing up failed
+ * with "email rate limit exceeded" for everyone after the first few — and a
+ * product nobody can get into is worse than one that trusts an address.
+ *
+ * To go back to verified addresses, drop `SUPABASE_SECRET_KEY` /
+ * `SUPABASE_SERVICE_ROLE_KEY` from the environment and configure real SMTP in
+ * the Supabase dashboard: the branch below is the ordinary `signUp` flow.
+ */
 export async function signUp(_prev: AuthState, formData: FormData): Promise<AuthState> {
   const parsed = signUpSchema.safeParse({
     email: formData.get("email"),
@@ -48,13 +77,44 @@ export async function signUp(_prev: AuthState, formData: FormData): Promise<Auth
     return { error: parsed.error.issues[0]?.message ?? "Check the details you entered" };
   }
 
+  const { email, password, fullName } = parsed.data;
   const supabase = await createSupabaseServerClient();
+  const secret = supabaseSecretKey();
+
+  if (secret) {
+    const admin = createClient(supabaseUrl(), secret, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    const { data, error } = await admin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: fullName },
+    });
+    if (error) return { error: signUpError(error.message) };
+
+    if (data.user) {
+      await prisma.user.upsert({
+        where: { id: data.user.id },
+        create: { id: data.user.id, email, fullName },
+        update: { fullName },
+      });
+    }
+
+    const { error: sessionError } = await supabase.auth.signInWithPassword({ email, password });
+    if (sessionError) return { error: signUpError(sessionError.message) };
+
+    revalidatePath("/", "layout");
+    redirect("/onboarding");
+  }
+
   const { data, error } = await supabase.auth.signUp({
-    email: parsed.data.email,
-    password: parsed.data.password,
-    options: { data: { full_name: parsed.data.fullName } },
+    email,
+    password,
+    options: { data: { full_name: fullName } },
   });
-  if (error) return { error: error.message };
+  if (error) return { error: signUpError(error.message) };
 
   if (!data.session) {
     return {
@@ -66,8 +126,8 @@ export async function signUp(_prev: AuthState, formData: FormData): Promise<Auth
   if (data.user) {
     await prisma.user.upsert({
       where: { id: data.user.id },
-      create: { id: data.user.id, email: parsed.data.email, fullName: parsed.data.fullName },
-      update: { fullName: parsed.data.fullName },
+      create: { id: data.user.id, email, fullName },
+      update: { fullName },
     });
   }
 
