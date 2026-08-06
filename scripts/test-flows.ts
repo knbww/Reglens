@@ -472,7 +472,7 @@ async function main() {
   // ------------------------------------------------------- 11. Plan selection
   section("11. Plan selection");
   const plans = await prisma.subscriptionPlan.findMany();
-  check("all three pricing tiers are seeded", plans.length === 3, `${plans.length} tiers`);
+  check("both pricing tiers are seeded", plans.length === 2, `${plans.length} tiers`);
   await prisma.user.update({ where: { id: owner.id }, data: { plan: "PRO" } });
   const upgraded = await prisma.user.findUnique({ where: { id: owner.id } });
   check("selected plan persists on the account", upgraded?.plan === "PRO");

@@ -8,6 +8,7 @@ import { AccountMenu } from "@/components/app/nav/account-menu";
 import { MobileTabBar } from "@/components/app/nav/mobile-tab-bar";
 import { TopNav } from "@/components/app/nav/top-nav";
 import { QuickSearch } from "@/components/app/quick-search";
+import { accessFor, trialRemaining } from "@/lib/billing";
 import { EMPTY_NAV_COUNTS, getNavCounts, getUnreadNotificationCount } from "@/lib/queries";
 import { getActiveBusiness, listBusinesses, requireUser } from "@/lib/session";
 import { SHORT_DISCLAIMER } from "@/lib/taxonomy";
@@ -33,6 +34,7 @@ const SHELL_WIDTH = "mx-auto w-full max-w-[86rem] px-4 sm:px-6 lg:px-8";
  */
 export async function AppShell({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
+  const access = accessFor(user);
   const [businesses, activeBusiness] = await Promise.all([
     listBusinesses(user.id),
     getActiveBusiness(user.id),
@@ -66,6 +68,17 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
             <TopNav counts={counts} className="ml-1 hidden lg:flex" />
 
             <div className="ml-auto flex shrink-0 items-center gap-1">
+              {/* The clock, stated once, where it cannot be mistaken for an
+                  alert about the reader's compliance work. */}
+              {access.state === "trial" ? (
+                <Link
+                  href="/pricing"
+                  className="mr-1 hidden whitespace-nowrap text-[13px] text-ink-muted transition-colors hover:text-ink lg:block"
+                >
+                  Trial · {trialRemaining(access.trialEndsAt)}
+                </Link>
+              ) : null}
+
               <Suspense fallback={<div className="hidden h-9 w-44 sm:block xl:w-56" />}>
                 <QuickSearch className="hidden w-44 sm:block xl:w-56" />
               </Suspense>

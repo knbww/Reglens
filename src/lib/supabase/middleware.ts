@@ -3,7 +3,12 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { supabasePublishableKey, supabaseUrl } from "./env";
 
-const PUBLIC_PATHS = ["/", "/sign-in", "/sign-up", "/pricing", "/legal", "/auth"];
+/*
+ * `/api/stripe` is here because Stripe arrives with a signature rather than a
+ * session cookie: without it the webhook would be redirected to the sign-in
+ * page and every subscription event would be silently lost.
+ */
+const PUBLIC_PATHS = ["/", "/sign-in", "/sign-up", "/pricing", "/legal", "/auth", "/api/stripe"];
 
 function isPublic(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));

@@ -94,7 +94,6 @@ async function seedPlans() {
         priceMonthly: plan.priceMonthly,
         tagline: plan.tagline,
         features: plan.features,
-        limits: plan.limits,
         highlighted: plan.highlighted,
         displayOrder: index,
       },
@@ -103,12 +102,17 @@ async function seedPlans() {
         priceMonthly: plan.priceMonthly,
         tagline: plan.tagline,
         features: plan.features,
-        limits: plan.limits,
         highlighted: plan.highlighted,
         displayOrder: index,
       },
     });
   }
+  // A tier that has been withdrawn should not linger in the table pricing is
+  // read from — the $99 plan outlived its removal from the product once.
+  await prisma.subscriptionPlan.deleteMany({
+    where: { tier: { notIn: PLAN_CATALOG.map((plan) => plan.tier) } },
+  });
+
   console.log(`  ${PLAN_CATALOG.length} subscription plans`);
 }
 

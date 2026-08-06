@@ -10,7 +10,10 @@ import { AccountForm, DeleteBusinessButton } from "@/components/app/settings/set
 import { jurisdictionName } from "@/data/jurisdictions";
 import { DEFAULT_GROQ_MODEL, groqModel, isAiConfigured } from "@/lib/ai/provider";
 import { formatDate } from "@/lib/format";
-import { planByTier } from "@/lib/plans";
+import { BillingActions } from "@/components/app/billing-actions";
+import { accessFor, trialRemaining } from "@/lib/billing";
+import { formatPrice, planByTier, PRO_PRICE_MONTHLY } from "@/lib/plans";
+import { isBillingConfigured } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
 import { getActiveBusiness, requireUser } from "@/lib/session";
 import { DISCLAIMER } from "@/lib/taxonomy";
@@ -63,7 +66,9 @@ export default async function SettingsPage() {
     getActiveBusiness(user.id),
   ]);
 
-  const plan = planByTier(user.plan);
+  const access = accessFor(user);
+  const plan = planByTier("PRO");
+  const billingConfigured = isBillingConfigured();
   const aiConfigured = isAiConfigured();
 
   return (
@@ -86,39 +91,37 @@ export default async function SettingsPage() {
       </Group>
 
       <Group
-        title="Plan"
-        purpose="What the current plan allows. No payment is taken in this version and no feature is withheld."
+        title="Subscription"
+        purpose="What is paying for RegLens, and when the next thing happens."
       >
         <Rows
           items={[
-            { term: "Current plan", value: `${plan.name} — ${plan.tagline}` },
             {
-              term: "Business profiles",
-              value: plan.limits.businesses === null ? "Unlimited" : `${plan.limits.businesses}`,
-            },
-            {
-              term: "Policy searches",
+              term: "Status",
               value:
-                plan.limits.policySearches === null
-                  ? "Unlimited"
-                  : `${plan.limits.policySearches} per month`,
+                access.state === "subscribed"
+                  ? `${plan.name} — ${formatPrice(PRO_PRICE_MONTHLY)} a month`
+                  : access.state === "trial"
+                    ? `Free trial — ${trialRemaining(access.trialEndsAt)}`
+                    : "Free trial — used up",
             },
             {
-              term: "AI Analyst questions",
+              term: access.state === "subscribed" ? "Renews" : "Trial ends",
               value:
-                plan.limits.aiQuestions === null ? "Unlimited" : `${plan.limits.aiQuestions} per month`,
-            },
-            {
-              term: "Monitored items",
-              value: plan.limits.monitoredItems === null ? "Unlimited" : `${plan.limits.monitoredItems}`,
+                access.state === "subscribed"
+                  ? user.currentPeriodEnd
+                    ? formatDate(user.currentPeriodEnd)
+                    : "On the usual monthly date"
+                  : formatDate(access.trialEndsAt),
             },
           ]}
         />
-        <p className="mt-4">
-          <Link href="/pricing" className={linkClass}>
-            Compare the plans
-          </Link>
-        </p>
+        <div className="mt-4">
+          <BillingActions
+            subscribed={access.state === "subscribed"}
+            configured={billingConfigured}
+          />
+        </div>
       </Group>
 
       <Group

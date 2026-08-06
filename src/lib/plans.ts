@@ -1,76 +1,60 @@
 import type { PlanTier } from "@prisma/client";
 
-export type PlanLimits = {
-  businesses: number | null;
-  policySearches: number | null;
-  aiQuestions: number | null;
-  monitoredItems: number | null;
-};
-
 export type PlanDefinition = {
   tier: PlanTier;
   name: string;
   priceMonthly: number; // cents
   tagline: string;
   features: string[];
-  limits: PlanLimits;
   highlighted: boolean;
 };
 
+/** How long a new account has the whole product for nothing. */
+export const TRIAL_HOURS = 24;
+
+/** What continuing costs, in cents. One price, one product. */
+export const PRO_PRICE_MONTHLY = 2900;
+
+/** The Stripe price is found by this key, so no dashboard id is hard-coded. */
+export const PRO_PRICE_LOOKUP_KEY = "reglens_pro_monthly";
+
 /**
- * MVP pricing hypothesis. Plan selection is persisted on the user record and
- * gates nothing destructive — there is no billing integration in the MVP.
+ * Two states, not a ladder of tiers.
+ *
+ * The three-tier catalogue asked people to predict which of ten limits they
+ * would hit before they had read a single requirement — and the top tier
+ * priced a promise ("positioned for future ERP integrations") rather than
+ * anything that exists. A day of the real thing answers the question the
+ * pricing table was asking on the reader's behalf.
  */
 export const PLAN_CATALOG: PlanDefinition[] = [
   {
     tier: "FREE",
-    name: "Free",
+    name: `Free for ${TRIAL_HOURS} hours`,
     priceMonthly: 0,
-    tagline: "See how RegLens reads your business before committing.",
+    tagline: "The whole product, from the moment you sign up. No card.",
     features: [
-      "Short onboarding — company basics only",
-      "10 policy searches per month",
-      "3 AI Analyst questions per month",
-      "Dashboard preview with risk score",
-      "1 business profile",
+      "Every requirement RegLens holds for your jurisdictions",
+      "The AI Analyst, grounded in your own profile",
+      "Action planner, deadlines and reminders",
+      "Policy monitoring and the change feed",
+      "Jurisdiction comparison and compliance reports",
     ],
-    limits: { businesses: 1, policySearches: 10, aiQuestions: 3, monitoredItems: 3 },
     highlighted: false,
   },
   {
     tier: "PRO",
-    name: "Pro",
-    priceMonthly: 2900,
-    tagline: "For a small team carrying compliance without a specialist.",
+    name: "RegLens",
+    priceMonthly: PRO_PRICE_MONTHLY,
+    tagline: "Everything in the trial, kept — and kept watching while you work.",
     features: [
-      "Full business profile and onboarding survey",
-      "Unlimited policy search",
-      "Personalised AI policy analysis",
-      "Custom compliance checklists",
-      "Action planner with tasks and deadlines",
+      "Everything above, without the clock",
+      "Up to 3 business profiles",
+      "Monitoring that keeps running between visits",
       "Deadline reminders and notifications",
-      "Policy monitoring and change feed",
-      "Jurisdiction comparison",
-      "Compliance reports",
+      "Cancel whenever — the month you are in stays yours",
     ],
-    limits: { businesses: 3, policySearches: null, aiQuestions: null, monitoredItems: 50 },
     highlighted: true,
-  },
-  {
-    tier: "BUSINESS",
-    name: "Business",
-    priceMonthly: 9900,
-    tagline: "For organisations tracking several entities or jurisdictions.",
-    features: [
-      "Everything in Pro",
-      "Multiple business profiles, team-ready",
-      "Expanded monitoring across jurisdictions and topics",
-      "Advanced reports with change history",
-      "Priority AI analysis queue",
-      "Positioned for future ERP and document integrations",
-    ],
-    limits: { businesses: 25, policySearches: null, aiQuestions: null, monitoredItems: null },
-    highlighted: false,
   },
 ];
 

@@ -129,6 +129,16 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Billing. The trial is a clock, not a tier: every account gets the whole
+  // product until `trialEndsAt`, and paying replaces the clock rather than
+  // unlocking features. Stripe owns the truth about the subscription; these
+  // columns are the copy the app reads on every request.
+  trialEndsAt          DateTime?
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?   @unique
+  subscriptionStatus   String? // Stripe's own vocabulary: active, past_due, canceled…
+  currentPeriodEnd     DateTime?
+
   businesses    Business[]
   conversations AIConversation[]
   reports       Report[]
@@ -143,7 +153,6 @@ model SubscriptionPlan {
   priceMonthly  Int // cents
   tagline       String
   features      String[]
-  limits        Json // { policySearches, aiQuestions, businesses, monitoredItems }
   highlighted   Boolean  @default(false)
   displayOrder  Int      @default(0)
 }
