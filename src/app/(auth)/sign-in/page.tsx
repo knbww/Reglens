@@ -14,7 +14,7 @@ export const metadata: Metadata = { title: "Sign in" };
 export default async function SignInPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string; demo?: string }>;
+  searchParams: Promise<{ next?: string; demo?: string; link?: string }>;
 }) {
   const params = await searchParams;
 
@@ -24,6 +24,14 @@ export default async function SignInPage({
       <p className="mt-3 text-[15px] leading-7 text-ink-soft">
         Pick up your dashboard, deadlines and monitored policies.
       </p>
+
+      {/* Confirmation links are single-use and time-limited; say which it was. */}
+      {params.link === "expired" ? (
+        <p role="alert" className="mt-4 text-[13px] leading-6 text-alert">
+          That confirmation link has already been used or has expired. Sign in below, or create the
+          account again to get a fresh one.
+        </p>
+      ) : null}
 
       <div className="mt-8">
         <SignInForm next={params.next ?? "/dashboard"} />

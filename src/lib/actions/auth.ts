@@ -10,9 +10,15 @@ import { prisma } from "@/lib/prisma";
 import { ACTIVE_BUSINESS_COOKIE } from "@/lib/session";
 import { supabaseSecretKey, supabaseUrl } from "@/lib/supabase/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 
-export type AuthState = { error?: string };
+/**
+ * `pending` carries the address a confirmation link was just sent to. It is a
+ * success, not a failure, and the form says so — "check your inbox" printed in
+ * the red the validation errors use was the product telling people the thing
+ * had gone wrong when it had gone right.
+ */
+export type AuthState = { error?: string; pending?: string; notice?: string };
 
 const credentials = z.object({
   email: z.string().email("Enter a valid email address"),
@@ -41,11 +47,23 @@ export async function signIn(_prev: AuthState, formData: FormData): Promise<Auth
   redirect(next.startsWith("/") ? next : "/dashboard");
 }
 
+/**
+ * The origin this request came in on, so a confirmation link points back at
+ * the deployment that sent it — production, a preview URL or localhost — with
+ * nothing to keep in sync by hand.
+ */
+async function siteOrigin(): Promise<string> {
+  const headerList = await headers();
+  const host = headerList.get("x-forwarded-host") ?? headerList.get("host") ?? "localhost:3000";
+  const proto = headerList.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
+  return `${proto}://${host}`;
+}
+
 /** Supabase phrasing, turned into something the person can act on. */
 function signUpError(message: string): string {
   const text = message.toLowerCase();
   if (text.includes("rate limit") || text.includes("email send")) {
-    return "Too many confirmation emails have gone out from this project in the last hour. Supabase's built-in mail service allows only a handful — turn off “Confirm email” in Authentication → Sign In / Providers → Email, or connect your own SMTP, and try again.";
+    return "The mail service turned this away: too many messages have gone out from this project in the last hour. Wait a few minutes and try again — and if this keeps happening, the project still needs its own SMTP credentials rather than Supabase's shared sender.";
   }
   if (text.includes("already registered") || text.includes("already been registered") || text.includes("already exists")) {
     return "That email already has an account. Sign in instead.";
@@ -54,18 +72,16 @@ function signUpError(message: string): string {
 }
 
 /**
- * Creates the account and signs straight in.
+ * Addresses are verified: signing up sends a link, and the account is only
+ * usable once it has been followed.
  *
- * When a server key is configured the account is created through the admin
- * API, already confirmed, and the password is used to open a session at once.
- * That is deliberate: Supabase's built-in mail service allows only a couple of
- * messages an hour, so a confirmation round-trip meant that signing up failed
- * with "email rate limit exceeded" for everyone after the first few — and a
- * product nobody can get into is worse than one that trusts an address.
- *
- * To go back to verified addresses, drop `SUPABASE_SECRET_KEY` /
- * `SUPABASE_SERVICE_ROLE_KEY` from the environment and configure real SMTP in
- * the Supabase dashboard: the branch below is the ordinary `signUp` flow.
+ * `AUTH_AUTOCONFIRM=1` is the deliberate exception. Supabase's built-in mail
+ * service allows a couple of messages an hour, so until the project has its
+ * own SMTP credentials and a verified sending domain, a confirmation
+ * round-trip means everyone after the first few sees "email rate limit
+ * exceeded" and cannot get in at all. With the flag set — and only then — the
+ * account is created through the admin API already confirmed. Remove the flag
+ * the moment real mail is wired up; nothing else has to change.
  */
 export async function signUp(_prev: AuthState, formData: FormData): Promise<AuthState> {
   const parsed = signUpSchema.safeParse({
@@ -81,7 +97,7 @@ export async function signUp(_prev: AuthState, formData: FormData): Promise<Auth
   const supabase = await createSupabaseServerClient();
   const secret = supabaseSecretKey();
 
-  if (secret) {
+  if (secret && process.env.AUTH_AUTOCONFIRM === "1") {
     const admin = createClient(supabaseUrl(), secret, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
@@ -112,16 +128,13 @@ export async function signUp(_prev: AuthState, formData: FormData): Promise<Auth
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: { data: { full_name: fullName } },
+    options: { data: { full_name: fullName }, emailRedirectTo: `${await siteOrigin()}/auth/callback` },
   });
   if (error) return { error: signUpError(error.message) };
 
-  if (!data.session) {
-    return {
-      error:
-        "Account created. Check your inbox to confirm the address, then sign in. (Local Supabase shows the email at http://127.0.0.1:54324.)",
-    };
-  }
+  // No session means Supabase is confirming the address. The mirror row waits
+  // until the link is followed — `getCurrentUser` creates it on first sign-in.
+  if (!data.session) return { pending: email };
 
   if (data.user) {
     await prisma.user.upsert({
@@ -133,6 +146,22 @@ export async function signUp(_prev: AuthState, formData: FormData): Promise<Auth
 
   revalidatePath("/", "layout");
   redirect("/onboarding");
+}
+
+/** Sends the confirmation link again, for the inbox that never got it. */
+export async function resendConfirmation(_prev: AuthState, formData: FormData): Promise<AuthState> {
+  const email = String(formData.get("email") ?? "").trim();
+  if (!email) return { error: "Enter the address you signed up with." };
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.auth.resend({
+    type: "signup",
+    email,
+    options: { emailRedirectTo: `${await siteOrigin()}/auth/callback` },
+  });
+  if (error) return { pending: email, error: signUpError(error.message) };
+
+  return { pending: email, notice: "Sent again. It can take a minute to arrive." };
 }
 
 /** One-click sign-in for the seeded demo account. */
